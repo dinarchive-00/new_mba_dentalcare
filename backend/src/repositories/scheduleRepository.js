@@ -6,6 +6,7 @@ function createScheduleRepository(initialRecords = []) {
   return {
     findAll() { return repository.findAll(); },
     findById(id) { return repository.findById(id); },
+    create(payload) { return repository.create(payload); },
     update(id, payload) { return repository.update(id, payload); },
     tryBook(id, doctorId) {
       const schedule = repository.findById(id);

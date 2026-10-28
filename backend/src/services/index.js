@@ -12,7 +12,7 @@ const resourceServices = Object.fromEntries(
     name === 'doctors'
       ? createDoctorService(repository)
       : name === 'schedules'
-        ? createScheduleService(repository)
+        ? createScheduleService(repository, resourceRepositories.doctors)
         : name === 'patients'
           ? createPatientService(repository)
           : name === 'reservations'

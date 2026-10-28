@@ -36,7 +36,7 @@ function validateQuery(query, { requireDoctorAndDate = false } = {}) {
   }
 }
 
-function createScheduleService(repository) {
+function createScheduleService(repository, doctors) {
   return {
     async list(query = {}) {
       validateQuery(query);
@@ -57,7 +57,32 @@ function createScheduleService(repository) {
     },
     async availability(query = {}) {
       validateQuery(query, { requireDoctorAndDate: true });
-      const schedules = await repository.findAll();
+      let schedules = await repository.findAll();
+      const doctor = doctors.findById(query.doctorId);
+      const hasSchedulesForDate = schedules.some((schedule) => (
+        schedule.doctorId === query.doctorId && schedule.date === query.date
+      ));
+
+      // Seed slot demonstrasi untuk tanggal yang belum memiliki jadwal.
+      // Record disimpan di repository agar reservasi dapat mengunci kapasitasnya.
+      if (doctor?.isActive && !hasSchedulesForDate) {
+        [
+          ['09:00', '10:00', 'pagi'],
+          ['10:00', '11:00', 'pagi'],
+          ['13:00', '14:00', 'siang'],
+        ].forEach(([startTime, endTime, shift]) => repository.create({
+          doctorId: query.doctorId,
+          date: query.date,
+          shift,
+          startTime,
+          endTime,
+          capacity: 4,
+          bookedCount: 0,
+          isActive: true,
+        }));
+        schedules = await repository.findAll();
+      }
+
       return schedules.filter((schedule) => (
         schedule.doctorId === query.doctorId
         && schedule.date === query.date
