@@ -14,7 +14,10 @@ const resourceServices = Object.fromEntries(
       : name === 'schedules'
         ? createScheduleService(repository, resourceRepositories.doctors)
         : name === 'patients'
-          ? createPatientService(repository)
+          ? createPatientService(repository, {
+            reservations: resourceRepositories.reservations,
+            doctors: resourceRepositories.doctors,
+          })
           : name === 'reservations'
             ? createReservationService({
               reservations: repository,
@@ -22,6 +25,7 @@ const resourceServices = Object.fromEntries(
               services: resourceRepositories.services,
               doctors: resourceRepositories.doctors,
               schedules: resourceRepositories.schedules,
+              queues: resourceRepositories.queues,
             })
             : name === 'queues'
               ? createQueueService({

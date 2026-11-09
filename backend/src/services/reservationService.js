@@ -18,7 +18,7 @@ function createConflictError(message) {
   return error;
 }
 
-function createReservationService({ reservations, patients, services, doctors, schedules }) {
+function createReservationService({ reservations, patients, services, doctors, schedules, queues }) {
   return {
     list() { return reservations.findAll(); },
     getById(id) {
@@ -44,6 +44,15 @@ function createReservationService({ reservations, patients, services, doctors, s
       }
 
       if (!patients.findById(input.patientId)) throw createNotFoundError('Pasien');
+      if (input.visitType === 'kontrol') {
+        const previousReservation = reservations.findAll()
+          .filter((reservation) => reservation.patientId === input.patientId)
+          .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+        if (!previousReservation) throw createNotFoundError('Riwayat perawatan');
+        if (previousReservation.doctorId !== input.doctorId) {
+          throw createConflictError('Reservasi kontrol harus menggunakan dokter dari perawatan sebelumnya. Hubungi Frontline jika perlu pergantian dokter.');
+        }
+      }
       const service = services.findById(input.serviceId);
       if (!service) throw createNotFoundError('Layanan');
       if (service.isActive === false) throw createConflictError('Layanan tidak aktif.');
@@ -54,6 +63,9 @@ function createReservationService({ reservations, patients, services, doctors, s
       if (!schedule) throw createNotFoundError('Jadwal');
       if (schedule.doctorId !== input.doctorId) {
         throw createValidationError('Dokter tidak sesuai dengan dokter pada jadwal.');
+      }
+      if (typeof schedule.shift !== 'string' || schedule.shift.trim() === '') {
+        throw createValidationError('Shift jadwal belum tersedia. Silakan pilih jadwal lain.');
       }
       if (!schedule.isActive) throw createConflictError('Jadwal tidak aktif.');
       if (schedule.bookedCount >= schedule.capacity) throw createConflictError('Jadwal sudah penuh.');
@@ -68,16 +80,44 @@ function createReservationService({ reservations, patients, services, doctors, s
       if (booking.outcome === 'inactive') throw createConflictError('Jadwal tidak aktif.');
       if (booking.outcome === 'full') throw createConflictError('Jadwal sudah penuh.');
 
+      let reservation;
+      let queue;
       try {
-        return reservations.create({
+        reservation = reservations.create({
           ...input,
           status: 'confirmed',
           createdAt: new Date().toISOString(),
         });
+        queue = queues.createForReservation({
+          reservationId: reservation.id,
+          doctorId: doctor.id,
+          date: schedule.date,
+          shift: schedule.shift,
+          status: 'waiting',
+          createdAt: new Date().toISOString(),
+        });
+        reservation = reservations.update(reservation.id, { queueNumber: queue.queueNumber });
       } catch (error) {
+        if (queue) queues.remove(queue.id);
+        if (reservation) reservations.remove(reservation.id);
         schedules.releaseBooking(input.scheduleId);
         throw error;
       }
+
+      return {
+        ...reservation,
+        queue: {
+          id: queue.id,
+          queueNumber: queue.queueNumber,
+          doctorId: doctor.id,
+          date: schedule.date,
+          shift: schedule.shift,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime,
+        },
+        doctorName: doctor.name,
+        serviceName: service.name,
+      };
     },
   };
 }

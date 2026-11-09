@@ -1,16 +1,7 @@
 ﻿const createInMemoryRepository = require('./inMemoryRepository');
 
 // Antrean demonstrasi mengacu pada reservasi dan jadwal demonstrasi yang tersedia.
-const demonstrationQueues = [
-  {
-    id: 'queue-demo-001',
-    reservationId: 'reservation-demo-001',
-    queueNumber: '001',
-    date: '2026-10-13',
-    status: 'waiting',
-    createdAt: '2026-10-12T00:00:00.000Z',
-  },
-];
+const demonstrationQueues = [];
 
 function createQueueRepository() {
   const repository = createInMemoryRepository(demonstrationQueues);
@@ -29,10 +20,12 @@ function createQueueRepository() {
         throw error;
       }
 
-      const usedNumbers = repository.findAll()
-        .filter((queue) => queue.date === payload.date)
-        .map((queue) => Number(queue.queueNumber))
-        .filter(Number.isFinite);
+      const matchingQueues = repository.findAll().filter((queue) => (
+        queue.doctorId === payload.doctorId
+        && queue.date === payload.date
+        && queue.shift === payload.shift
+      ));
+      const usedNumbers = matchingQueues.map((queue) => Number(queue.queueNumber)).filter(Number.isFinite);
       const nextNumber = String(Math.max(0, ...usedNumbers) + 1).padStart(3, '0');
       const id = `queue-demo-${String(nextId).padStart(3, '0')}`;
       nextId += 1;
@@ -40,6 +33,7 @@ function createQueueRepository() {
       return repository.create({ id, ...payload, queueNumber: nextNumber });
     },
     update(id, payload) { return repository.update(id, payload); },
+    remove(id) { return repository.remove(id); },
   };
 }
 

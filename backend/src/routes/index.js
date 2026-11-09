@@ -1,4 +1,5 @@
 ﻿const express = require('express');
+const authRoutes = require('./authRoutes');
 const createResourceRouter = require('./resourceRouter');
 const scheduleRoutes = require('./scheduleRoutes');
 const patientRoutes = require('./patientRoutes');
@@ -11,6 +12,7 @@ const router = express.Router();
 const healthController = createHealthController();
 
 router.get('/health', healthController.getHealth);
+router.use('/auth', authRoutes);
 router.use('/reservations', reservationRoutes);
 router.use('/services', createResourceRouter(resourceServices.services));
 router.use('/doctors', createResourceRouter(resourceServices.doctors));

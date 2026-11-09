@@ -1,5 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react'
 import './App.css'
+import './review.css'
 
 const serviceIcons = ['🦷', '✨', '🪥', '😁']
 
@@ -25,9 +26,297 @@ async function postApiData(path, payload) {
   return { status: response.status, data: result.data }
 }
 
+function toRecordList(value) {
+  if (!Array.isArray(value)) throw new Error('Format data tidak sesuai. Silakan muat ulang.');
+  return value.filter((record) => record && typeof record === 'object' && !Array.isArray(record));
+}
+
+function ReservationList({ onBack, onLogout }) {
+  const [reservations, setReservations] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [services, setServices] = useState([]);
+  const [doctors, setDoctors] = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all(['reservations', 'patients', 'services', 'doctors', 'schedules'].map(async (path) => {
+      const result = await getApiData(path, { signal: controller.signal });
+      return toRecordList(result);
+    }))
+      .then(([reservationData, patientData, serviceData, doctorData, scheduleData]) => {
+        if (controller.signal.aborted) return;
+        setReservations(reservationData);
+        setPatients(patientData);
+        setServices(serviceData);
+        setDoctors(doctorData);
+        setSchedules(scheduleData);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError('Daftar reservasi gagal dimuat. Periksa koneksi ke server, lalu coba muat ulang.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [reloadKey]);
+
+  const patientById = new Map(patients.map((record) => [record.id, record]));
+  const serviceById = new Map(services.map((record) => [record.id, record]));
+  const doctorById = new Map(doctors.map((record) => [record.id, record]));
+  const scheduleById = new Map(schedules.map((record) => [record.id, record]));
+  const rows = reservations.map((reservation) => ({
+    reservation,
+    patient: patientById.get(reservation.patientId),
+    service: serviceById.get(reservation.serviceId),
+    doctor: doctorById.get(reservation.doctorId),
+    schedule: scheduleById.get(reservation.scheduleId),
+  }));
+  const normalizedQuery = query.trim().toLocaleLowerCase('id');
+  const filteredRows = rows.filter(({ reservation, patient, service, doctor }) => (
+    [reservation.id, patient?.name, service?.name, doctor?.name]
+      .some((value) => String(value || '').toLocaleLowerCase('id').includes(normalizedQuery))
+  ));
+  const confirmedCount = reservations.filter((item) => String(item.status || '').toLowerCase() === 'confirmed').length;
+  const otherStatusCount = reservations.length - confirmedCount;
+  const formatDate = (value) => {
+    if (!value) return '?';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium' }).format(date);
+  };
+
+  return (
+    <main className="service-page reservation-page">
+      <header className="service-page-header"><button className="back-button" onClick={onBack} aria-label="Kembali ke beranda">?</button><span>Daftar Reservasi</span><button className="logout-button" onClick={onLogout}>Keluar</button><button className="reload-button" onClick={() => { setLoading(true); setError(''); setReloadKey((value) => value + 1) }} disabled={loading}>Muat Ulang</button></header>
+      <section className="reservation-content">
+        <div className="eyebrow"><span /> DATA KUNJUNGAN</div>
+        <h1>Daftar <em>Reservasi</em></h1>
+        <div className="reservation-summary" aria-label="Ringkasan reservasi">
+          <article><span>Total Reservasi</span><strong>{loading ? '?' : reservations.length}</strong></article>
+          <article><span>Terkonfirmasi</span><strong>{loading ? '?' : confirmedCount}</strong></article>
+          <article><span>Status lain</span><strong>{loading ? '?' : otherStatusCount}</strong></article>
+        </div>
+        <label className="reservation-search">Cari reservasi
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ID, pasien, dokter, atau layanan" />
+        </label>
+        {loading && <p className="reservation-message" role="status">Memuat daftar reservasi...</p>}
+        {!loading && error && <p className="reservation-message reservation-error" role="alert">{error}</p>}
+        {!loading && !error && reservations.length === 0 && <p className="reservation-message">Belum ada reservasi.</p>}
+        {!loading && !error && reservations.length > 0 && filteredRows.length === 0 && <p className="reservation-message">Reservasi tidak ditemukan. Coba kata kunci lain.</p>}
+        {!loading && !error && filteredRows.length > 0 && (
+          <div className="reservation-table-wrap"><table className="reservation-table">
+            <thead><tr><th>ID Reservasi</th><th>Nama Pasien</th><th>Layanan</th><th>Dokter</th><th>Jadwal Kunjungan</th><th>Jenis Kunjungan</th><th>Status</th><th>Dibuat</th></tr></thead>
+            <tbody>{filteredRows.map(({ reservation, patient, service, doctor, schedule }) => (
+              <tr key={reservation.id}>
+                <td>{reservation.id || '?'}</td><td>{patient?.name || '?'}</td><td>{service?.name || '?'}</td><td>{doctor?.name || '?'}</td>
+                <td>{schedule ? <>{formatDate(schedule.date)}{(schedule.startTime || schedule.endTime) && <small>{schedule.startTime || ''}{schedule.endTime ? `?${schedule.endTime}` : ''}</small>}</> : '?'}</td>
+                <td>{reservation.visitType || '?'}</td><td><span className={`reservation-status ${String(reservation.status || '').toLowerCase() === 'confirmed' ? 'is-confirmed' : ''}`}>{reservation.status || '?'}</span></td><td>{formatDate(reservation.createdAt)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        )}
+      </section>
+    </main>
+  );
+}
+
+
+function localDateString(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date)
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
+  return `${values.year}-${values.month}-${values.day}`
+}
+
+function addLocalDateDays(dateString, days) {
+  const [year, month, day] = dateString.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + days))
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+function formatClinicDate(dateString) {
+  return new Intl.DateTimeFormat('id-ID', { dateStyle: 'long', timeZone: 'Asia/Jakarta' }).format(new Date(`${dateString}T00:00:00Z`))
+}
+
+function ScheduleManagement({ onBack, onLogout }) {
+  const today = localDateString()
+  const lastDate = addLocalDateDays(today, 13)
+  const [doctors, setDoctors] = useState([])
+  const [schedules, setSchedules] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    Promise.all([getApiData('doctors', { signal: controller.signal }), getApiData('schedules', { signal: controller.signal })])
+      .then(([doctorData, scheduleData]) => {
+        if (!Array.isArray(doctorData) || !Array.isArray(scheduleData)) throw new Error('Format data dokter atau jadwal tidak sesuai.')
+        if (controller.signal.aborted) return
+        setDoctors(doctorData)
+        setSchedules(scheduleData)
+      })
+      .catch(() => { if (!controller.signal.aborted) setError('Data dokter atau jadwal gagal dimuat. Periksa koneksi server, lalu coba muat ulang.') })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [reloadKey])
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const formData = new FormData(form)
+    const doctorId = String(formData.get('doctorId') || '')
+    const date = String(formData.get('date') || '')
+    const shift = String(formData.get('shift') || '')
+    setError('')
+    setSuccess('')
+    if (!doctorId) { setError('Pilih dokter terlebih dahulu.'); return }
+    if (!date) { setError('Pilih tanggal jadwal.'); return }
+    if (date < today || date > lastDate) { setError(`Tanggal harus berada antara ${formatClinicDate(today)} dan ${formatClinicDate(lastDate)}.`); return }
+    if (!['pagi', 'siang'].includes(shift)) { setError('Pilih shift Pagi atau Siang.'); return }
+
+    setSaving(true)
+    try {
+      const result = await postApiData('schedules', { doctorId, date, shift })
+      if (result.status !== 201 || !result.data?.id || result.data.doctorId !== doctorId || result.data.date !== date || result.data.shift !== shift) {
+        throw new Error('Server tidak mengembalikan jadwal yang tersimpan dengan benar.')
+      }
+      setSuccess('Jadwal berhasil disimpan.')
+      setLoading(true)
+      setReloadKey((value) => value + 1)
+      form.reset()
+    } catch (requestError) {
+      setError(requestError.status === 409
+        ? 'Jadwal dokter untuk tanggal dan shift tersebut sudah tersedia.'
+        : requestError.message || 'Jadwal gagal disimpan. Silakan coba lagi.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const doctorById = new Map(doctors.map((doctor) => [doctor.id, doctor]))
+
+  return (
+    <main className="service-page schedule-management-page">
+      <header className="service-page-header"><button className="back-button" onClick={onBack} aria-label="Kembali ke beranda">?</button><span>Manajemen Jadwal Dokter</span><button className="logout-button" onClick={onLogout}>Keluar</button></header>
+      <section className="schedule-management-content">
+        <div className="eyebrow"><span /> KHUSUS FRONTLINE</div>
+        <h1>Manajemen Jadwal <em>Dokter</em></h1>
+        <p className="service-page-intro">Tambahkan jadwal untuk hari ini sampai {formatClinicDate(lastDate)}.</p>
+        <form className="schedule-management-form" onSubmit={handleSubmit}>
+          <label>Dokter<select name="doctorId" defaultValue="" required disabled={loading || doctors.length === 0}><option value="" disabled>Pilih dokter</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name}</option>)}</select></label>
+          <label>Tanggal<input type="date" name="date" required min={today} max={lastDate} disabled={loading} /></label>
+          <label>Shift<select name="shift" defaultValue="" required><option value="" disabled>Pilih shift</option><option value="pagi">Pagi</option><option value="siang">Siang</option></select></label>
+          {error && <p className="schedule-feedback schedule-error" role="alert">{error}</p>}
+          {success && <p className="schedule-feedback schedule-success" role="status">{success}</p>}
+          <button className="button button-dark" type="submit" disabled={saving || loading || doctors.length === 0}>{saving ? 'Menyimpan...' : 'Simpan Jadwal'} <span>?</span></button>
+        </form>
+        <p className="schedule-branch-note">Aplikasi ini mengelola satu cabang. Frontline tetap perlu memastikan jadwal tidak bertabrakan dengan cabang lain secara manual.</p>
+        <div className="schedule-list-heading"><h2>Jadwal Tersimpan</h2><button className="reload-button" onClick={() => { setLoading(true); setError(''); setReloadKey((value) => value + 1) }} disabled={loading}>Muat Ulang</button></div>
+        {loading && <p className="reservation-message" role="status">Memuat data dokter dan jadwal...</p>}
+        {!loading && error && schedules.length === 0 && <p className="reservation-message reservation-error" role="alert">{error}</p>}
+        {!loading && !error && schedules.length === 0 && <p className="reservation-message">Belum ada jadwal tersimpan.</p>}
+        {!loading && schedules.length > 0 && <div className="managed-schedule-list">{[...schedules].sort((a,b) => a.date.localeCompare(b.date) || String(a.shift).localeCompare(String(b.shift))).map((schedule) => <article className="managed-schedule-card" key={schedule.id}><div><strong>{doctorById.get(schedule.doctorId)?.name || 'Dokter tidak ditemukan'}</strong><small>{formatClinicDate(schedule.date)}</small></div><span className="managed-shift">Shift {schedule.shift === 'pagi' ? 'Pagi' : schedule.shift === 'siang' ? 'Siang' : schedule.shift || '?'}</span><span className="managed-hours">{schedule.startTime || '?'}{schedule.endTime ? `?${schedule.endTime}` : ''}</span>{schedule.isActive !== undefined && <span className={`managed-status ${schedule.isActive ? 'active' : ''}`}>{schedule.isActive ? 'Aktif' : 'Nonaktif'}</span>}</article>)}</div>}
+      </section>
+    </main>
+  )
+}
+
+
+function FrontlineLogin({ onBack, onSuccess }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setError('')
+    setSubmitting(true)
+    try {
+      const response = await fetch('/api/auth/frontline/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Login gagal. Silakan coba lagi.')
+      if (result.data?.role !== 'frontline') throw new Error('Server tidak mengonfirmasi role Frontline.')
+      onSuccess()
+    } catch (requestError) {
+      setError(requestError.message || 'Server tidak dapat dihubungi. Periksa koneksi lalu coba lagi.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <main className="service-page frontline-login-page">
+      <header className="service-page-header"><button className="back-button" onClick={onBack} aria-label="Kembali ke beranda">?</button><span>Login Frontline</span></header>
+      <section className="frontline-login-card">
+        <div className="brand-mark login-brand-mark">?</div>
+        <div className="eyebrow"><span /> AREA FRONTLINE</div>
+        <h1>Selamat datang<br /><em>kembali.</em></h1>
+        <p className="service-page-intro">Masuk untuk mengelola jadwal dokter dan reservasi pasien.</p>
+        <form className="frontline-login-form" onSubmit={handleSubmit}>
+          <label>Nama pengguna<input name="username" autoComplete="username" required value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+          <label>Kata sandi<input name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+          {error && <p className="form-error" role="alert">{error}</p>}
+          <button className="button button-dark" type="submit" disabled={submitting}>{submitting ? 'Memeriksa...' : 'Masuk sebagai Frontline'} <span>?</span></button>
+        </form>
+      </section>
+    </main>
+  )
+}
+
+
+function FrontlineDashboard({ onHome, onReservations, onSchedules, onAssistReservation, onLogout }) {
+  return (
+    <main className="service-page frontline-dashboard-page">
+      <header className="service-page-header"><button className="back-button" onClick={onHome}>Kembali</button><span>Dashboard Frontline</span><button className="logout-button" onClick={onLogout}>Keluar</button></header>
+      <section className="frontline-dashboard-content">
+        <div className="eyebrow"><span /> AREA OPERASIONAL</div>
+        <h1>Dashboard <em>Frontline</em></h1>
+        <p className="service-page-intro">Pilih pekerjaan yang ingin Anda lakukan.</p>
+        <div className="frontline-dashboard-grid">
+          <button className="frontline-dashboard-card" onClick={onAssistReservation}><span className="frontline-card-icon">+</span><strong>Bantu Reservasi Pasien</strong><small>Bantu pasien mengisi alur reservasi website yang sama.</small></button>
+          <button className="frontline-dashboard-card" onClick={onReservations}><span className="frontline-card-icon">R</span><strong>Daftar Reservasi</strong><small>Lihat dan cari reservasi pasien.</small></button>
+          <button className="frontline-dashboard-card" onClick={onSchedules}><span className="frontline-card-icon">J</span><strong>Manajemen Jadwal Dokter</strong><small>Tambahkan dan lihat jadwal dokter.</small></button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+
+const FRONTLINE_PATHS = {
+  frontlineLogin: '/frontline',
+  frontlineDashboard: '/frontline/dashboard',
+  reservations: '/frontline/reservations',
+  scheduleManagement: '/frontline/schedules',
+}
+
+function pageFromPath(pathname) {
+  const match = Object.entries(FRONTLINE_PATHS).find(([, path]) => path === pathname)
+  return match?.[0] || 'home'
+}
+
 function App() {
+  const bookingToday = localDateString()
+  const bookingLastDate = addLocalDateDays(bookingToday, 6)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [page, setPage] = useState('home')
+  const [page, setPageState] = useState(() => pageFromPath(window.location.pathname))
+  function setPage(nextPage) {
+    setPageState(nextPage)
+    const nextPath = FRONTLINE_PATHS[nextPage] || '/'
+    if (window.location.pathname !== nextPath) window.history.pushState({ page: nextPage }, '', nextPath)
+  }
   const [visitDate, setVisitDate] = useState('')
   const [selectedTime, setSelectedTime] = useState('')
   const [services, setServices] = useState([])
@@ -43,9 +332,64 @@ function App() {
   const [servicesError, setServicesError] = useState('')
   const [doctorsError, setDoctorsError] = useState('')
   const [patientId, setPatientId] = useState('')
+  const [patientForm, setPatientForm] = useState({ name: '', nik: '', phone: '', email: '', notes: '' })
+  const [patientIdentityStatus, setPatientIdentityStatus] = useState('unverified')
+  const [patientIdentityMessage, setPatientIdentityMessage] = useState('')
+  const [patientIdentityLoading, setPatientIdentityLoading] = useState(false)
+  const [visitType, setVisitType] = useState('baru')
+  const [controlLookup, setControlLookup] = useState({ nik: '', name: '' })
+  const [reservationDraft, setReservationDraft] = useState(null)
+  const [controlLookupError, setControlLookupError] = useState('')
+  const [controlLookupLoading, setControlLookupLoading] = useState(false)
   const [reservationSubmitting, setReservationSubmitting] = useState(false)
+  const [frontlineAssisting, setFrontlineAssisting] = useState(false)
   const [reservationError, setReservationError] = useState('')
+  const [reservationConfirmation, setReservationConfirmation] = useState(null)
+  const [frontlineAuthenticated, setFrontlineAuthenticated] = useState(false)
   const reservationInProgress = useRef(false)
+
+  useEffect(() => {
+    const handlePopState = () => setPageState(pageFromPath(window.location.pathname))
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/auth/session', { credentials: 'same-origin' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((result) => { if (result?.data?.role === 'frontline') setFrontlineAuthenticated(true) })
+      .catch(() => {})
+  }, [])
+
+  function openFrontlinePage() {
+    setMenuOpen(false)
+    setPage(frontlineAuthenticated ? 'frontlineDashboard' : 'frontlineLogin')
+  }
+
+  function startAssistedReservation() {
+    setFrontlineAssisting(true)
+    setSelectedService(null)
+    setSelectedDoctor(null)
+    setSelectedSchedule(null)
+    setSelectedTime('')
+    setVisitDate('')
+    setPatientId('')
+    setPatientForm({ name: '', nik: '', phone: '', email: '', notes: '' })
+    setPatientIdentityStatus('unverified')
+    setPatientIdentityMessage('')
+    setPatientIdentityLoading(false)
+    setVisitType('baru')
+    setControlLookup({ nik: '', name: '' })
+    setReservationDraft(null)
+    setReservationError('')
+    setPage('services')
+  }
+
+  async function handleFrontlineLogout() {
+    await fetch('/api/auth/frontline/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => null)
+    setFrontlineAuthenticated(false)
+    setPage('home')
+  }
 
   useEffect(() => {
     getApiData('services')
@@ -74,6 +418,8 @@ function App() {
           schedule.doctorId === selectedDoctor.id
           && schedule.isActive
           && schedule.bookedCount < schedule.capacity
+          && schedule.date >= bookingToday
+          && schedule.date <= bookingLastDate
           && (!visitDate || schedule.date === visitDate)
         )))
       })
@@ -87,7 +433,7 @@ function App() {
       })
 
     return () => controller.abort()
-  }, [selectedDoctor, visitDate])
+  }, [selectedDoctor, visitDate, bookingToday, bookingLastDate])
 
   const visibleSchedules = schedules.filter((schedule) => (
     schedule.doctorId === selectedDoctor?.id
@@ -101,17 +447,74 @@ function App() {
     ? <p role="status">Memuat dokter...</p>
     : doctorsError || (doctors.length === 0 ? <p>Dokter belum tersedia.</p> : null)
 
-  async function handleReservationSubmit(event) {
+  function handlePrepareReservationReview(event) {
     event.preventDefault()
+    if (patientIdentityStatus !== 'existing' && patientIdentityStatus !== 'new') {
+      setReservationError('Identifikasi pasien terlebih dahulu berdasarkan NIK dan nama lengkap.')
+      return
+    }
+    if (patientIdentityStatus === 'existing' && !patientId) {
+      setReservationError('Data pasien belum terhubung. Silakan identifikasi ulang.')
+      return
+    }
+    setReservationDraft(Object.fromEntries(Object.entries(patientForm).map(([key, value]) => [key, value.trim()])))
+    setReservationError('')
+    setPage('review')
+  }
+
+  function handlePatientIdentityChange(field, value) {
+    setPatientForm((current) => ({ ...current, [field]: value }))
+    if (field === 'name' || field === 'nik') {
+      setPatientId('')
+      setPatientIdentityStatus('unverified')
+      setPatientIdentityMessage('NIK atau nama berubah. Silakan identifikasi ulang.')
+    }
+  }
+
+  async function handlePatientIdentify() {
+    setPatientIdentityLoading(true)
+    setPatientIdentityMessage('')
+    setPatientIdentityStatus('unverified')
+    setPatientId('')
+    try {
+      const result = await postApiData('patients/identify', {
+        nik: patientForm.nik.trim(),
+        name: patientForm.name.trim(),
+      })
+      if (result.data?.found && result.data.patient?.id) {
+        setPatientId(result.data.patient.id)
+        setPatientForm((current) => ({
+          ...current,
+          name: result.data.patient.name,
+          nik: result.data.patient.nik,
+          phone: result.data.patient.phone || current.phone,
+        }))
+        setPatientIdentityStatus('existing')
+        setPatientIdentityMessage('Data pasien ditemukan. Reservasi akan menggunakan record pasien yang sudah ada.')
+      } else {
+        setPatientIdentityStatus('new')
+        setPatientIdentityMessage('Data pasien belum terdaftar. Record pasien baru akan dibuat saat reservasi dikirim.')
+      }
+    } catch (error) {
+      setPatientIdentityStatus(error.status === 409 ? 'mismatch' : 'unverified')
+      setPatientIdentityMessage(error.status === 409
+        ? error.message
+        : error.status === 400
+          ? error.message
+          : 'Identifikasi pasien gagal. Silakan coba lagi.')
+    } finally {
+      setPatientIdentityLoading(false)
+    }
+  }
+
+  async function handleReservationSubmit() {
     if (reservationInProgress.current) return
 
-    const formData = new FormData(event.currentTarget)
     const patient = {
-      nik: String(formData.get('nik') || '').trim(),
-      name: String(formData.get('name') || '').trim(),
-      phone: String(formData.get('phone') || '').trim(),
+      nik: String(reservationDraft?.nik || '').trim(),
+      name: String(reservationDraft?.name || '').trim(),
+      phone: String(reservationDraft?.phone || '').trim(),
     }
-    const visitType = String(formData.get('visitType') || '')
 
     if (!selectedService?.id || !selectedDoctor?.id || !selectedSchedule?.id
       || selectedSchedule.doctorId !== selectedDoctor.id
@@ -138,6 +541,9 @@ function App() {
     try {
       let currentPatientId = patientId
       if (!currentPatientId) {
+        if (patientIdentityStatus !== 'new') {
+          throw new Error('Pasien belum teridentifikasi. Identifikasi ulang sebelum membuat record baru.')
+        }
         const patientResponse = await postApiData('patients', patient)
         if (patientResponse.status !== 201 || !patientResponse.data?.id) {
           throw new Error('Data pasien tidak berhasil dibuat.')
@@ -153,9 +559,17 @@ function App() {
         scheduleId: selectedSchedule.id,
         visitType,
       })
-      if (reservationResponse.status !== 201) {
-        throw new Error('Reservasi belum dikonfirmasi oleh server.')
+      const savedReservation = reservationResponse.data
+      if (reservationResponse.status !== 201 || !savedReservation?.id
+        || !savedReservation.queue?.queueNumber || !savedReservation.queue?.doctorId
+        || !savedReservation.queue?.date || !savedReservation.queue?.shift
+        || savedReservation.doctorId !== selectedDoctor.id
+        || savedReservation.scheduleId !== selectedSchedule.id) {
+        const error = new Error('Server belum mengembalikan nomor antrean dan detail reservasi yang lengkap. Silakan coba lagi.')
+        error.status = 502
+        throw error
       }
+      setReservationConfirmation(savedReservation)
       setPage('success')
     } catch (error) {
       if (error.status === 400) {
@@ -165,7 +579,7 @@ function App() {
       } else if (error.status === 409 && /penuh/i.test(error.message)) {
         setReservationError('Jadwal baru saja penuh. Silakan kembali dan pilih jadwal lain.')
       } else if (error.status === 409 && /NIK sudah terdaftar/i.test(error.message)) {
-        setReservationError('NIK sudah terdaftar. Pemilihan pasien lama belum tersedia melalui API yang ada; hubungi klinik untuk melanjutkan.')
+        setReservationError('NIK sudah terdaftar. Nama lengkap tidak cocok atau data pasien berubah. Identifikasi ulang sebelum melanjutkan.')
       } else if (error.status === 409) {
         setReservationError(error.message)
       } else if (error.status) {
@@ -179,22 +593,61 @@ function App() {
     }
   }
 
+  async function handleControlLookup(event) {
+    event.preventDefault()
+    setControlLookupError('')
+    setControlLookupLoading(true)
+    try {
+      const result = await postApiData('patients/lookup-control', controlLookup)
+      if (!result.data?.patientId || !result.data?.doctor?.id) throw new Error('Data dokter sebelumnya tidak lengkap.')
+      setPatientId(result.data.patientId)
+      setPatientForm((current) => ({
+        ...current,
+        nik: controlLookup.nik.trim(),
+        name: result.data.patientName,
+        phone: result.data.patientPhone || current.phone,
+      }))
+      setPatientIdentityStatus('existing')
+      setPatientIdentityMessage('Data pasien ditemukan. Reservasi akan menggunakan record pasien yang sudah ada.')
+      setSelectedDoctor(result.data.doctor)
+      setSchedules([])
+      setSelectedSchedule(null)
+      setSelectedTime('')
+      setVisitDate('')
+      setSchedulesError('')
+      setSchedulesLoading(true)
+      setPage('previousDoctor')
+    } catch (error) {
+      setControlLookupError(error.status === 404 ? error.message : 'Pencarian data gagal. Silakan coba lagi.')
+    } finally {
+      setControlLookupLoading(false)
+    }
+  }
+
+  if (page === 'frontlineLogin') return frontlineAuthenticated ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onSchedules={() => setPage('scheduleManagement')} onAssistReservation={startAssistedReservation} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('frontlineDashboard') }} />
+  if (page === 'frontlineDashboard') return frontlineAuthenticated ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onSchedules={() => setPage('scheduleManagement')} onAssistReservation={startAssistedReservation} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('frontlineDashboard') }} />
+  if (page === 'scheduleManagement') return frontlineAuthenticated ? <ScheduleManagement onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('scheduleManagement') }} />
+  if (page === 'reservations') return frontlineAuthenticated ? <ReservationList onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('reservations') }} />
+
   if (page === 'services') return (
     <main className="service-page">
-      <header className="service-page-header"><button className="back-button" onClick={() => setPage('home')}>←</button><span>Pilih Layanan</span><span className="step-count">01 / 04</span></header>
-      <section className="service-page-content service-choice-content"><div className="booking-service-list">{serviceListStatus}{!servicesLoading && !servicesError && services.map((service, index) => <button className="booking-service-card" key={service.id} onClick={() => { setSelectedService(service); setSelectedDoctor(null); setSchedules([]); setSelectedSchedule(null); setSelectedTime(''); setVisitDate(''); setSchedulesError(''); setSchedulesLoading(false); setPage('doctors') }}><span className="booking-service-icon">{serviceIcons[index % serviceIcons.length]}</span><span className="booking-service-copy"><strong>{service.name}</strong><small>{service.description}</small></span><span className="booking-service-arrow">→</span></button>)}</div></section>
+      <header className="service-page-header"><button className="back-button" onClick={() => setPage(frontlineAssisting ? 'frontlineDashboard' : 'home')}>←</button><span>Pilih Layanan</span><span className="step-count">01 / 04</span></header>
+      <section className="service-page-content service-choice-content"><label>Jenis kunjungan<select value={visitType} onChange={(event) => { setVisitType(event.target.value); setPatientId(''); setSelectedDoctor(null) }}><option value="baru">Pasien baru</option><option value="kontrol">Kontrol</option></select></label><div className="booking-service-list">{serviceListStatus}{!servicesLoading && !servicesError && services.map((service, index) => <button className="booking-service-card" key={service.id} onClick={() => { setSelectedService(service); setSelectedDoctor(null); setSchedules([]); setSelectedSchedule(null); setSelectedTime(''); setVisitDate(''); setSchedulesError(''); setSchedulesLoading(false); setPage(visitType === 'kontrol' ? 'controlLookup' : 'doctors') }}><span className="booking-service-icon">{serviceIcons[index % serviceIcons.length]}</span><span className="booking-service-copy"><strong>{service.name}</strong><small>{service.description}</small></span><span className="booking-service-arrow">→</span></button>)}</div></section>
     </main>
   )
+  if (page === 'controlLookup') return <main className="service-page"><header className="service-page-header"><button className="back-button" onClick={() => setPage('services')}>←</button><span>Data Kunjungan Kontrol</span><span className="step-count">02 / 04</span></header><section className="service-page-content"><div className="eyebrow"><span /> VERIFIKASI PASIEN</div><h1>Temukan data<br /><em>perawatan Anda.</em></h1><p className="service-page-intro">Masukkan NIK dan nama lengkap sesuai data yang tersimpan.</p><form className="reservation-form" onSubmit={handleControlLookup}><label>NIK<input required inputMode="numeric" pattern="[0-9]{16}" maxLength="16" value={controlLookup.nik} onChange={(event) => setControlLookup({ ...controlLookup, nik: event.target.value })} /></label><label>Nama lengkap<input required value={controlLookup.name} onChange={(event) => setControlLookup({ ...controlLookup, name: event.target.value })} /></label>{controlLookupError && <p className="form-error" role="alert">{controlLookupError}</p>}<button className="button button-dark continue-button" disabled={controlLookupLoading}>{controlLookupLoading ? 'Mencari...' : 'Cari Data Pasien'} <span>→</span></button></form></section></main>
+  if (page === 'previousDoctor') return <main className="service-page"><header className="service-page-header"><button className="back-button" onClick={() => setPage('controlLookup')}>←</button><span>Dokter Kontrol</span><span className="step-count">02 / 04</span></header><section className="service-page-content"><div className="eyebrow"><span /> INFORMASI PERAWATAN SEBELUMNYA</div><h1>Kontrol dengan<br /><em>dokter yang sama.</em></h1><article className="booking-service-card" aria-label="Dokter kontrol"><span className="doctor-avatar">{selectedDoctor?.name?.split(' ').slice(-2).map((part) => part[0]).join('').toUpperCase()}</span><span className="booking-service-copy"><strong>{selectedDoctor?.name}</strong><small>{selectedDoctor?.specialty}</small></span><span className="booking-service-arrow">✓</span></article><p className="service-page-intro">Dokter kontrol ditentukan dari reservasi sebelumnya. Jika perlu diganti, silakan hubungi Frontline.</p><button className="button button-dark continue-button" onClick={() => setPage('schedule')}>Lihat Jadwal <span>→</span></button></section></main>
   if (page === 'doctors') return <main className="service-page"><header className="service-page-header"><button className="back-button" onClick={() => setPage('services')}>←</button><span>Pilih Dokter</span><span className="step-count">02 / 04</span></header><section className="service-page-content"><div className="eyebrow"><span /> DOKTER KAMI</div><h1>Temukan dokter<br /><em>pilihan Anda.</em></h1><p className="service-page-intro">Pilih dokter untuk melanjutkan reservasi.</p><div className="booking-service-list">{doctorListStatus}{!doctorsLoading && !doctorsError && doctors.map((doctor)=><button className="booking-service-card" key={doctor.id} onClick={()=>{if(selectedDoctor?.id!==doctor.id){setSelectedDoctor(doctor);setSchedules([]);setSelectedSchedule(null);setSelectedTime('');setSchedulesError('');setSchedulesLoading(true)}setPage('schedule')}}><span className="doctor-avatar">{doctor.name.split(' ').slice(-2).map((part)=>part[0]).join('').toUpperCase()}</span><span className="booking-service-copy"><strong>{doctor.name}</strong><small>{doctor.specialty}</small></span><span className="booking-service-arrow">→</span></button>)}</div></section></main>
   if (page === 'schedule') return (
     <main className="service-page">
-      <header className="service-page-header"><button className="back-button" onClick={() => setPage('doctors')}>←</button><span>Pilih Jadwal</span><span className="step-count">03 / 04</span></header>
+      <header className="service-page-header"><button className="back-button" onClick={() => setPage(visitType === 'kontrol' ? 'previousDoctor' : 'doctors')}>←</button><span>{visitType === 'kontrol' ? 'Jadwal Dokter Kontrol' : 'Pilih Jadwal'}</span><span className="step-count">03 / 04</span></header>
       <section className="service-page-content">
         <div className="eyebrow"><span /> JADWAL KUNJUNGAN</div>
         <h1>Kapan Anda<br /><em>ingin berkunjung?</em></h1>
         <p className="service-page-intro">Pilih tanggal dan waktu yang tersedia.</p>
         <label className="date-label" htmlFor="visit-date">Tanggal kunjungan</label>
-        <input className="date-input" id="visit-date" type="date" required value={visitDate} onChange={(event) => { setVisitDate(event.target.value); setSchedules([]); setSelectedSchedule(null); setSelectedTime(''); setSchedulesError(''); setSchedulesLoading(true) }} />
+        <input className="date-input" id="visit-date" type="date" min={bookingToday} max={bookingLastDate} required value={visitDate} onChange={(event) => { setVisitDate(event.target.value); setSchedules([]); setSelectedSchedule(null); setSelectedTime(''); setSchedulesError(''); setSchedulesLoading(true) }} />
+        <p className="schedule-date-note">Jadwal yang dapat dipilih tersedia hari ini hingga {formatClinicDate(bookingLastDate)}.</p>
         <div className="time-label">Pilih waktu</div>
         <div className="time-options">
           {schedulesLoading && <p role="status">Memuat jadwal...</p>}
@@ -210,17 +663,19 @@ function App() {
       </section>
     </main>
   )
-  if (page === 'form') return <main className="service-page"><header className="service-page-header"><button className="back-button" onClick={()=>setPage('schedule')}>←</button><span>Form Reservasi</span><span className="step-count">04 / 04</span></header><section className="service-page-content"><div className="eyebrow"><span /> DETAIL PASIEN</div><h1>Lengkapi data<br /><em>kunjungan Anda.</em></h1><p className="service-page-intro">Kami akan menghubungi Anda untuk konfirmasi reservasi.</p><form className="reservation-form" onSubmit={handleReservationSubmit}>
-    <label>Nama lengkap<input name="name" required placeholder="Masukkan nama lengkap" onChange={() => setPatientId('')} /></label>
-    <label>Nomor telepon<input name="phone" required type="tel" placeholder="08xxxxxxxxxx" onChange={() => setPatientId('')} /></label>
-    <label>NIK<input name="nik" required inputMode="numeric" pattern="[0-9]{16}" maxLength="16" placeholder="Masukkan 16 digit NIK" onChange={() => setPatientId('')} /></label>
-    <label>Email<input name="email" required type="email" placeholder="nama@email.com" /></label>
-    <label>Jenis kunjungan<select name="visitType" required defaultValue="baru"><option value="baru">Pasien baru</option><option value="kontrol">Kontrol</option></select></label>
-    <label>Keluhan / Catatan<textarea name="notes" required rows="4" placeholder="Ceritakan keluhan atau catatan tambahan" /></label>
+  if (page === 'form') return <main className="service-page"><header className="service-page-header"><button className="back-button" onClick={()=>setPage('schedule')}>←</button><span>Form Reservasi</span><span className="step-count">04 / 05</span></header><section className="service-page-content"><div className="eyebrow"><span /> DETAIL PASIEN</div><h1>Lengkapi data<br /><em>kunjungan Anda.</em></h1><p className="service-page-intro">Kami akan menghubungi Anda untuk konfirmasi reservasi.</p><form className="reservation-form" onSubmit={handlePrepareReservationReview}>
+    <label>Nama lengkap<input name="name" required value={patientForm.name} readOnly={visitType === 'kontrol' && patientIdentityStatus === 'existing'} placeholder="Masukkan nama lengkap" onChange={(event) => handlePatientIdentityChange('name', event.target.value)} /></label>
+    <label>NIK<input name="nik" required inputMode="numeric" pattern="[0-9]{16}" maxLength="16" value={patientForm.nik} readOnly={visitType === 'kontrol' && patientIdentityStatus === 'existing'} placeholder="Masukkan 16 digit NIK" onChange={(event) => handlePatientIdentityChange('nik', event.target.value)} /></label>
+    {visitType !== 'kontrol' && <div className="patient-identification"><button type="button" className="review-secondary" onClick={handlePatientIdentify} disabled={patientIdentityLoading || !patientForm.name.trim() || !/^\d{16}$/.test(patientForm.nik.trim())}>{patientIdentityLoading ? 'Memeriksa...' : 'Identifikasi Pasien'}</button>{patientIdentityMessage && <p className={`patient-identification-message ${patientIdentityStatus === 'mismatch' ? 'is-error' : ''}`} role={patientIdentityStatus === 'mismatch' ? 'alert' : 'status'}>{patientIdentityMessage}</p>}</div>}
+    <label>Nomor telepon<input name="phone" required type="tel" value={patientForm.phone} placeholder="08xxxxxxxxxx" onChange={(event) => handlePatientIdentityChange('phone', event.target.value)} /></label>
+    <label>Email<input name="email" required type="email" value={patientForm.email} placeholder="nama@email.com" onChange={(event) => handlePatientIdentityChange('email', event.target.value)} /></label>
+    <label>Jenis kunjungan<input value={visitType === 'kontrol' ? 'Kontrol' : 'Pasien baru'} readOnly /></label>
+    <label>Keluhan / Catatan<textarea name="notes" required rows="4" value={patientForm.notes} placeholder="Ceritakan keluhan atau catatan tambahan" onChange={(event) => handlePatientIdentityChange('notes', event.target.value)} /></label>
     {reservationError && <p className="form-error" role="alert">{reservationError}</p>}
-    <button className="button button-dark continue-button" type="submit" disabled={reservationSubmitting}>{reservationSubmitting ? 'Mengirim...' : 'Konfirmasi Reservasi'} <span>→</span></button>
+    <button className="button button-dark continue-button" type="submit">Tinjau Reservasi <span>→</span></button>
     </form></section></main>
-  if (page === 'success') return <main className="service-page success-page"><div className="success-check">✓</div><h1>Reservasi<br /><em>berhasil!</em></h1><p>Terima kasih. Tim kami akan segera menghubungi Anda.</p><button className="button button-dark" onClick={()=>setPage('home')}>Kembali ke Beranda <span>→</span></button></main>
+  if (page === 'review') return <main className="service-page"><header className="service-page-header"><button className="back-button" onClick={() => setPage('form')} aria-label="Kembali ke data pasien">←</button><span>Periksa Reservasi</span><span className="step-count">05 / 05</span></header><section className="service-page-content"><div className="eyebrow"><span /> RINGKASAN RESERVASI</div><h1>Periksa kembali<br /><em>pilihan Anda.</em></h1><p className="service-page-intro">Pastikan informasi berikut sudah benar sebelum reservasi dikirim.</p><section className="confirmation-card" aria-label="Ringkasan reservasi"><dl><div><dt>Tindakan</dt><dd>{selectedService?.name || '—'}</dd></div><div><dt>Jenis kunjungan</dt><dd>{visitType === 'kontrol' ? 'Kontrol' : 'Pasien baru'}</dd></div><div><dt>Dokter</dt><dd>{selectedDoctor?.name || '—'}</dd></div><div><dt>Tanggal</dt><dd>{visitDate ? formatClinicDate(visitDate) : '—'}</dd></div><div><dt>Shift</dt><dd>{selectedSchedule?.shift ? `${selectedSchedule.shift[0].toUpperCase()}${selectedSchedule.shift.slice(1)}` : '—'}</dd></div><div><dt>Jam</dt><dd>{selectedSchedule ? `${selectedSchedule.startTime}–${selectedSchedule.endTime}` : '—'}</dd></div></dl></section><section className="confirmation-card" aria-label="Data pasien yang digunakan"><div className="queue-number-label">DATA PASIEN</div><dl><div><dt>Nama</dt><dd>{reservationDraft?.name || '—'}</dd></div><div><dt>NIK</dt><dd>{reservationDraft?.nik || '—'}</dd></div><div><dt>Telepon</dt><dd>{reservationDraft?.phone || '—'}</dd></div><div><dt>Email</dt><dd>{reservationDraft?.email || '—'}</dd></div><div><dt>Keluhan / Catatan</dt><dd>{reservationDraft?.notes || '—'}</dd></div></dl></section>{reservationError && <p className="form-error" role="alert">{reservationError}</p>}<div className="review-actions"><button className="button button-dark" onClick={handleReservationSubmit} disabled={reservationSubmitting}>{reservationSubmitting ? 'Mengirim...' : 'Kirim Reservasi'} <span>→</span></button><button className="review-secondary" onClick={() => setPage('form')} disabled={reservationSubmitting}>Ubah data pasien</button><button className="review-secondary" onClick={() => setPage('schedule')} disabled={reservationSubmitting}>Ubah jadwal</button></div></section></main>
+  if (page === 'success') return <main className="service-page success-page"><div className="success-check">?</div><h1>Reservasi<br /><em>berhasil!</em></h1><p>Reservasi Anda sudah tercatat.</p>{reservationConfirmation && <section className="confirmation-card" aria-label="Ringkasan konfirmasi"><div className="queue-number-label">NOMOR ANTREAN</div><strong className="queue-number">A{String(reservationConfirmation.queue.queueNumber).padStart(3, '0')}</strong><dl><div><dt>Kode reservasi</dt><dd>{reservationConfirmation.id}</dd></div><div><dt>Layanan</dt><dd>{reservationConfirmation.serviceName || selectedService?.name || '?'}</dd></div><div><dt>Dokter</dt><dd>{reservationConfirmation.doctorName || selectedDoctor?.name || '?'}</dd></div><div><dt>Tanggal</dt><dd>{new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(new Date(`${reservationConfirmation.queue.date}T00:00:00`))}</dd></div><div><dt>Shift</dt><dd>{reservationConfirmation.queue.shift}</dd></div><div><dt>Jam</dt><dd>{reservationConfirmation.queue.startTime}{reservationConfirmation.queue.endTime ? `?${reservationConfirmation.queue.endTime}` : ''}</dd></div></dl></section>}<p>Terima kasih. Tim kami akan segera menghubungi Anda.</p><button className="button button-dark" onClick={()=>{if(frontlineAssisting){setFrontlineAssisting(false);setPage('frontlineDashboard')}else setPage('home')}}>{frontlineAssisting ? 'Kembali ke Dashboard Frontline' : 'Kembali ke Beranda'} <span>→</span></button></main>
   return (
     <div className="app">
       <header className="header">
@@ -280,17 +735,9 @@ function App() {
         </section>
         <section className="booking" id="reservasi"><div className="booking-copy"><div className="eyebrow"><span /> MULAI PERJALANAN SENYUM SEHAT</div><h2>Waktunya merawat<br/>senyum <em>Anda.</em></h2><p>Pilih layanan dan jadwal yang cocok. Tim kami siap menyambut Anda.</p></div><a className="button button-light" href="#reservasi" onClick={(event) => { event.preventDefault(); setPage("services") }}>Atur Reservasi <span>→</span></a></section>
       </main>
-      <footer id="kontak"><a className="brand" href="#home"><span className="brand-mark">✦</span><span><strong>MBA</strong><small>DENTALCARE</small></span></a><p>Merawat senyum, sepenuh hati.</p><span>© 2026 MBA Dentalcare</span></footer>
+      <footer id="kontak"><a className="brand" href="#home"><span className="brand-mark">✦</span><span><strong>MBA</strong><small>DENTALCARE</small></span></a><p>Merawat senyum, sepenuh hati.</p><span>© 2026 MBA Dentalcare</span><a className="frontline-footer-link" href="#frontline-login" onClick={(event) => { event.preventDefault(); openFrontlinePage() }}>Area Frontline</a></footer>
     </div>
   )
 }
 
 export default App
-
-
-
-
-
-
-
-

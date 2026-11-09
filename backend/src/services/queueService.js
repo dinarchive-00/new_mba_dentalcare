@@ -81,7 +81,9 @@ function createQueueService({ queues, reservations, schedules }) {
       // Tanggal dan nomor antrean ditentukan dari repository, bukan dari request.
       return queues.createForReservation({
         reservationId,
+        doctorId: reservation.doctorId,
         date: schedule.date,
+        shift: schedule.shift,
         status: 'waiting',
         createdAt: new Date().toISOString(),
       });

@@ -4,9 +4,67 @@
   return error;
 }
 
-function createPatientService(repository) {
+function createConflictError(message) {
+  const error = new Error(message);
+  error.status = 409;
+  return error;
+}
+
+function normalizeName(name) {
+  return name.normalize('NFC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('id-ID');
+}
+
+function createPatientService(repository, { reservations, doctors } = {}) {
+  function findPatientByIdentity(payload, mismatchStatus = 409) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw createValidationError('Body harus berupa objek JSON.');
+    }
+    const nik = typeof payload.nik === 'string' ? payload.nik.trim() : '';
+    const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+    if (!/^\d{16}$/.test(nik) || !name) {
+      throw createValidationError('NIK 16 digit dan nama lengkap wajib diisi.');
+    }
+    const patient = repository.findByNik(nik);
+    if (!patient) return { patient: null, nik, name };
+    if (normalizeName(patient.name) !== normalizeName(name)) {
+      const error = new Error('NIK sudah terdaftar, tetapi nama lengkap tidak cocok. Periksa kembali nama sesuai identitas pasien.');
+      error.status = mismatchStatus;
+      throw error;
+    }
+    return { patient, nik, name };
+  }
+
   return {
     list() { return repository.findAll(); },
+    identify(payload) {
+      const { patient, nik } = findPatientByIdentity(payload);
+      if (!patient) return { found: false, patient: null };
+      return { found: true, patient: { id: patient.id, nik, name: patient.name, phone: patient.phone } };
+    },
+    async findForControl(payload) {
+      if (!reservations || !doctors) throw new Error('Pencarian data kontrol belum dikonfigurasi.');
+      const { patient } = findPatientByIdentity(payload, 404);
+      if (!patient) {
+        const error = new Error('NIK atau nama lengkap tidak cocok dengan data pasien.');
+        error.status = 404;
+        throw error;
+      }
+      const previous = reservations.findAll()
+        .filter((reservation) => reservation.patientId === patient.id)
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+      if (!previous) {
+        const error = new Error('Data kunjungan sebelumnya tidak ditemukan.');
+        error.status = 404;
+        throw error;
+      }
+      const doctor = doctors.findById(previous.doctorId);
+      if (!doctor) {
+        const error = new Error('Dokter dari kunjungan sebelumnya tidak ditemukan.');
+        error.status = 404;
+        throw error;
+      }
+      return { patientId: patient.id, patientName: patient.name, patientPhone: patient.phone, doctor };
+    },
     async getById(id) {
       const patient = await repository.findById(id);
       if (!patient) {
@@ -40,10 +98,12 @@ function createPatientService(repository) {
         throw createValidationError('Nomor telepon harus berupa nomor seluler Indonesia yang diawali 08 dan terdiri dari 10–13 digit.');
       }
 
-      if (await repository.findByNik(nik)) {
-        const error = new Error('NIK sudah terdaftar.');
-        error.status = 409;
-        throw error;
+      const existingPatient = repository.findByNik(nik);
+      if (existingPatient) {
+        if (normalizeName(existingPatient.name) !== normalizeName(name)) {
+          throw createConflictError('NIK sudah terdaftar, tetapi nama lengkap tidak cocok. Periksa kembali nama sesuai identitas pasien.');
+        }
+        throw createConflictError('NIK sudah terdaftar. Identifikasi pasien untuk menggunakan record yang sudah ada.');
       }
 
       return repository.create({

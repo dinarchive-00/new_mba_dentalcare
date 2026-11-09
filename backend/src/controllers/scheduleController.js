@@ -5,6 +5,10 @@
         res.status(200).json({ data: await service.list(req.query) });
       } catch (error) { next(error); }
     },
+    async create(req, res, next) {
+      try { res.status(201).json({ data: await service.create(req.body) }); }
+      catch (error) { next(error); }
+    },
     async getById(req, res, next) {
       try {
         res.status(200).json({ data: await service.getById(req.params.id) });

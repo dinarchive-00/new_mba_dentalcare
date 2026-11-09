@@ -1,0 +1,67 @@
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.review-actions .button {
+  min-height: 48px;
+  justify-content: center;
+  margin: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.review-secondary {
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid #b79a61;
+  border-radius: 5px;
+  background: #fff9df;
+  color: #30291f;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.18s;
+}
+
+.review-secondary:hover {
+  background: #fffdf5;
+  transform: translateY(-1px);
+}
+
+.review-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.patient-identification {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.patient-identification-message {
+  margin: 0;
+  color: #356a43;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.patient-identification-message.is-error {
+  color: #8b2e23;
+}
+
+@media (max-width: 560px) {
+  .review-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .review-actions .button,
+  .review-secondary {
+    width: 100%;
+  }
+}

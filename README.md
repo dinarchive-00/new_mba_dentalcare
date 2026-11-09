@@ -14,3 +14,10 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+
+## Login Frontline
+
+Akun Frontline dikonfigurasi di `backend/.env`, yang diabaikan Git agar rahasia tidak masuk source control. Backend membaca file ini saat mulai. Duplikasi `backend/.env.example` menjadi `backend/.env`, isi kredensial, lalu jalankan `node server.js` dari folder `backend`.
+
+Sesi login menggunakan cookie `HttpOnly` selama 8 jam dan disimpan di memori proses. Restart backend akan mengakhiri semua sesi.

@@ -52,34 +52,46 @@ const doctorRecords = [
     isActive: false,
   },
 ];
-// Data jadwal demonstrasi, bukan jadwal klinik yang terkonfirmasi.
+function nextDemoScheduleDate() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const today = `${values.year}-${values.month}-${values.day}`;
+  const [year, month, day] = today.split('-').map(Number);
+  const nextDay = new Date(Date.UTC(year, month - 1, day + 1));
+  return `${nextDay.getUTCFullYear()}-${String(nextDay.getUTCMonth() + 1).padStart(2, '0')}-${String(nextDay.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Jadwal demonstrasi aktif mulai besok agar selalu masuk jendela pemesanan.
+const demoScheduleDate = nextDemoScheduleDate();
 const scheduleRecords = [
   {
     id: 'schedule-demo-001',
     doctorId: 'doctor-demo-001',
-    date: '2026-10-20',
+    date: demoScheduleDate,
     shift: 'pagi',
     startTime: '09:00',
     endTime: '10:00',
     capacity: 4,
-    bookedCount: 1,
+    bookedCount: 0,
     isActive: true,
   },
   {
     id: 'schedule-demo-002',
     doctorId: 'doctor-demo-001',
-    date: '2026-10-20',
+    date: demoScheduleDate,
     shift: 'pagi',
     startTime: '10:00',
     endTime: '11:00',
     capacity: 2,
-    bookedCount: 1,
+    bookedCount: 0,
     isActive: true,
   },
   {
     id: 'schedule-demo-003',
     doctorId: 'doctor-demo-001',
-    date: '2026-10-20',
+    date: demoScheduleDate,
     shift: 'siang',
     startTime: '13:00',
     endTime: '14:00',
@@ -90,7 +102,7 @@ const scheduleRecords = [
   {
     id: 'schedule-demo-004',
     doctorId: 'doctor-demo-002',
-    date: '2026-10-20',
+    date: demoScheduleDate,
     shift: 'pagi',
     startTime: '09:00',
     endTime: '10:00',
