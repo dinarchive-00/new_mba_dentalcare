@@ -99,7 +99,13 @@ function createQueueService({ queues, reservations, schedules }) {
         throw createError(`Transisi status ${queue.status} ke ${nextStatus} tidak diizinkan.`, 400);
       }
 
-      return queues.update(id, { status: nextStatus });
+      const updatedQueue = queues.update(id, { status: nextStatus });
+      const reservation = reservations.findById(queue.reservationId);
+      if (reservation) {
+        reservations.update(reservation.id, { status: nextStatus });
+        if (nextStatus === 'cancelled') schedules.releaseBooking(reservation.scheduleId);
+      }
+      return updatedQueue;
     },
   };
 }

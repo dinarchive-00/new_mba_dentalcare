@@ -39,7 +39,7 @@ function createPatientService(repository, { reservations, doctors } = {}) {
     identify(payload) {
       const { patient, nik } = findPatientByIdentity(payload);
       if (!patient) return { found: false, patient: null };
-      return { found: true, patient: { id: patient.id, nik, name: patient.name, phone: patient.phone } };
+      return { found: true, patient: { id: patient.id, nik, name: patient.name, phone: patient.phone, address: patient.address || '' } };
     },
     async findForControl(payload) {
       if (!reservations || !doctors) throw new Error('Pencarian data kontrol belum dikonfigurasi.');
@@ -63,7 +63,7 @@ function createPatientService(repository, { reservations, doctors } = {}) {
         error.status = 404;
         throw error;
       }
-      return { patientId: patient.id, patientName: patient.name, patientPhone: patient.phone, doctor };
+      return { patientId: patient.id, patientName: patient.name, patientPhone: patient.phone, patientAddress: patient.address || '', doctor };
     },
     async getById(id) {
       const patient = await repository.findById(id);

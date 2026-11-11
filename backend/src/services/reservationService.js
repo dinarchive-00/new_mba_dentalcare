@@ -18,6 +18,15 @@ function createConflictError(message) {
   return error;
 }
 
+const RESERVATION_STATUS_TRANSITIONS = {
+  confirmed: new Set(['waiting', 'cancelled']),
+  waiting: new Set(['called', 'cancelled']),
+  called: new Set(['in_progress', 'cancelled']),
+  in_progress: new Set(['completed']),
+  completed: new Set(),
+  cancelled: new Set(),
+};
+
 function createReservationService({ reservations, patients, services, doctors, schedules, queues }) {
   return {
     list() { return reservations.findAll(); },
@@ -25,6 +34,30 @@ function createReservationService({ reservations, patients, services, doctors, s
       const reservation = reservations.findById(id);
       if (!reservation) throw createNotFoundError('Data');
       return reservation;
+    },
+    updateStatus(id, nextStatus) {
+      const reservation = reservations.findById(id);
+      if (!reservation) throw createNotFoundError('Reservasi');
+      if (!RESERVATION_STATUS_TRANSITIONS[reservation.status]?.has(nextStatus)) {
+        throw createConflictError(`Perubahan status ${reservation.status} ke ${nextStatus} tidak diizinkan.`);
+      }
+
+      const queue = queues.findByReservationId(id);
+      if (!queue) throw createNotFoundError('Antrean reservasi');
+      if (nextStatus === 'waiting') return reservations.update(id, { status: nextStatus });
+
+      const queueTransitions = {
+        waiting: new Set(['called', 'cancelled']),
+        called: new Set(['in_progress', 'cancelled']),
+        in_progress: new Set(['completed']),
+      };
+      if (!queueTransitions[queue.status]?.has(nextStatus)) {
+        throw createConflictError(`Perubahan status antrean ${queue.status} ke ${nextStatus} tidak diizinkan.`);
+      }
+
+      queues.update(queue.id, { status: nextStatus });
+      if (nextStatus === 'cancelled') schedules.releaseBooking(reservation.scheduleId);
+      return reservations.update(id, { status: nextStatus });
     },
     create(payload) {
       if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -39,6 +72,10 @@ function createReservationService({ reservations, patients, services, doctors, s
       }
 
       const input = Object.fromEntries(requiredFields.map((field) => [field, payload[field].trim()]));
+      const hasAddress = typeof payload.address === 'string';
+      const address = hasAddress ? payload.address.trim() : '';
+      if (hasAddress && !address) throw createValidationError('Alamat wajib diisi.');
+      if (address.length > 500) throw createValidationError('Alamat maksimal 500 karakter.');
       if (!VISIT_TYPES.has(input.visitType)) {
         throw createValidationError('visitType harus bernilai "baru" atau "kontrol".');
       }
@@ -97,6 +134,10 @@ function createReservationService({ reservations, patients, services, doctors, s
           createdAt: new Date().toISOString(),
         });
         reservation = reservations.update(reservation.id, { queueNumber: queue.queueNumber });
+        if (hasAddress) {
+          const updatedPatient = patients.update(input.patientId, { address });
+          if (!updatedPatient) throw createNotFoundError('Pasien');
+        }
       } catch (error) {
         if (queue) queues.remove(queue.id);
         if (reservation) reservations.remove(reservation.id);

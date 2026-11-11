@@ -26,6 +26,7 @@ function createPatientRepository() {
     findAll() { return repository.findAll(); },
     findById(id) { return repository.findById(id); },
     findByNik(nik) { return repository.findAll().find((patient) => patient.nik === nik) || null; },
+    update(id, payload) { return repository.update(id, payload); },
     create(payload) {
       const id = `patient-demo-${String(nextId).padStart(3, '0')}`;
       nextId += 1;
