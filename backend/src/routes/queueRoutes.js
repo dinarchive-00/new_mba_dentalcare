@@ -6,6 +6,8 @@ const { resourceServices } = require('../services');
 const router = express.Router();
 const controller = createQueueController(resourceServices.queues);
 
+router.get('/registered', controller.listRegistered);
+router.get('/current', controller.current);
 router.use(requireFrontline);
 
 router.get('/', controller.list);

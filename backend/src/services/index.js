@@ -32,6 +32,7 @@ const resourceServices = Object.fromEntries(
                 queues: repository,
                 reservations: resourceRepositories.reservations,
                 schedules: resourceRepositories.schedules,
+                doctors: resourceRepositories.doctors,
               })
               : createResourceService(repository),
   ]),

@@ -391,6 +391,115 @@ function FrontlineDashboard({ onHome, onReservations, onSchedules, onLogout }) {
   )
 }
 
+function RegisteredQueueView({ onBack }) {
+  const [entries, setEntries] = useState([]);
+  const [doctorFilter, setDoctorFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [currentQueueNumbers, setCurrentQueueNumbers] = useState([]);
+  const [currentLoading, setCurrentLoading] = useState(false);
+  const [currentError, setCurrentError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getApiData('queues/registered', { signal: controller.signal })
+      .then((data) => {
+        if (!Array.isArray(data)) throw new Error('Format data antrean tidak sesuai.');
+        if (!controller.signal.aborted) setEntries(data);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError('Informasi antrean gagal dimuat. Silakan coba lagi.'); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!doctorFilter || !dateFilter) {
+      setCurrentQueueNumbers([]);
+      setCurrentLoading(false);
+      setCurrentError('');
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let requestInFlight = false;
+    let firstRequest = true;
+    setCurrentQueueNumbers([]);
+    setCurrentError('');
+    setCurrentLoading(true);
+
+    async function loadCurrentQueues() {
+      if (requestInFlight || controller.signal.aborted) return;
+      requestInFlight = true;
+      if (firstRequest) setCurrentLoading(true);
+      const params = new URLSearchParams({ doctorId: doctorFilter, date: dateFilter });
+      try {
+        const data = await getApiData(`queues/current?${params.toString()}`, { signal: controller.signal });
+        if (!Array.isArray(data)) throw new Error('Format data antrean aktif tidak sesuai.');
+        if (!controller.signal.aborted) {
+          setCurrentQueueNumbers(data);
+          setCurrentError('');
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setCurrentQueueNumbers([]);
+          setCurrentError('Nomor antrean yang sedang dilayani gagal dimuat.');
+        }
+      } finally {
+        requestInFlight = false;
+        firstRequest = false;
+        if (!controller.signal.aborted) setCurrentLoading(false);
+      }
+    }
+
+    loadCurrentQueues();
+    const intervalId = window.setInterval(loadCurrentQueues, 5000);
+    return () => {
+      window.clearInterval(intervalId);
+      controller.abort();
+    };
+  }, [doctorFilter, dateFilter]);
+
+  const doctors = [...new Map(entries.map((entry) => [entry.doctorId, entry.doctorName])).entries()];
+  const dates = [...new Set(entries.map((entry) => entry.date))].sort();
+  const visibleEntries = entries.filter((entry) => (
+    (!doctorFilter || entry.doctorId === doctorFilter)
+    && (!dateFilter || entry.date === dateFilter)
+  ));
+
+  return (
+    <main className="service-page registered-queues-page">
+      <header className="service-page-header"><button className="back-button" onClick={onBack}>Kembali</button><span>Antrean Terdaftar</span></header>
+      <section className="registered-queues-content">
+        <div className="eyebrow"><span /> INFORMASI KUNJUNGAN</div>
+        <h1>Antrean <em>Terdaftar</em></h1>
+        <p className="service-page-intro">Lihat jumlah antrean berdasarkan dokter dan tanggal dalam periode reservasi yang tersedia.</p>
+        <div className="registered-queue-filters">
+          <label>Dokter<select value={doctorFilter} onChange={(event) => setDoctorFilter(event.target.value)} disabled={loading || doctors.length === 0}><option value="">Semua dokter</option>{doctors.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+          <label>Tanggal<select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} disabled={loading || dates.length === 0}><option value="">Semua tanggal tersedia</option>{dates.map((date) => <option key={date} value={date}>{formatClinicDate(date)}</option>)}</select></label>
+          {(doctorFilter || dateFilter) && <button className="clear-reservation-filters" type="button" onClick={() => { setDoctorFilter(''); setDateFilter(''); }}>Hapus filter</button>}
+        </div>
+        <section className="current-queue-panel" aria-live="polite" aria-label="Antrean yang sedang dilayani">
+          <div className="eyebrow"><span /> ANTREAN SAAT INI</div>
+          <h2>Nomor antrean yang sedang dilayani</h2>
+          {(!doctorFilter || !dateFilter) && <p>Pilih dokter dan tanggal untuk melihat antrean yang sedang dilayani.</p>}
+          {doctorFilter && dateFilter && currentLoading && <p role="status">Memuat nomor antrean...</p>}
+          {doctorFilter && dateFilter && !currentLoading && currentError && <p className="reservation-error" role="alert">{currentError}</p>}
+          {doctorFilter && dateFilter && !currentLoading && !currentError && currentQueueNumbers.length === 0 && <p>Belum ada antrean yang sedang dilayani untuk dokter dan tanggal ini.</p>}
+          {doctorFilter && dateFilter && !currentError && currentQueueNumbers.length > 0 && <div className="current-queue-numbers">{currentQueueNumbers.map((number, index) => <strong className="current-queue-number" key={`${number}-${index}`}>A{String(number).padStart(3, '0')}</strong>)}</div>}
+          {doctorFilter && dateFilter && <small className="current-queue-context">{doctors.find(([id]) => id === doctorFilter)?.[1]} · {formatClinicDate(dateFilter)} · diperbarui otomatis setiap 5 detik</small>}
+        </section>
+        {loading && <p className="reservation-message" role="status">Memuat informasi antrean...</p>}
+        {!loading && error && <p className="reservation-message reservation-error" role="alert">{error}</p>}
+        {!loading && !error && entries.length === 0 && <p className="reservation-message">Belum ada jadwal reservasi tersedia.</p>}
+        {!loading && !error && entries.length > 0 && visibleEntries.length === 0 && <p className="reservation-message">Tidak ada antrean untuk dokter dan tanggal yang dipilih.</p>}
+        {!loading && !error && visibleEntries.length > 0 && <div className="registered-queue-list">{visibleEntries.map((entry) => <article className="registered-queue-card" key={`${entry.doctorId}:${entry.date}`}><div><span>Dokter</span><strong>{entry.doctorName}</strong></div><div><span>Tanggal</span><strong>{formatClinicDate(entry.date)}</strong></div><div className="registered-queue-count"><span>Antrean terdaftar</span><strong>{entry.registeredCount}</strong></div></article>)}</div>}
+        <p className="registered-queue-privacy">Halaman ini hanya menampilkan nomor antrean yang sedang dilayani dan jumlah antrean terdaftar. Identitas pasien lain tidak ditampilkan.</p>
+      </section>
+    </main>
+  );
+}
+
 
 const FRONTLINE_PATHS = {
   frontlineLogin: '/frontline',
@@ -717,6 +826,7 @@ function App() {
     }
   }
 
+  if (page === 'registeredQueues') return <RegisteredQueueView onBack={() => setPage('home')} />
   if (page === 'frontlineLogin') return frontlineAuthenticated ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onSchedules={() => setPage('scheduleManagement')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('frontlineDashboard') }} />
   if (page === 'frontlineDashboard') return frontlineAuthenticated ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onSchedules={() => setPage('scheduleManagement')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('frontlineDashboard') }} />
   if (page === 'scheduleManagement') return frontlineAuthenticated ? <ScheduleManagement onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('scheduleManagement') }} />
@@ -782,6 +892,7 @@ function App() {
           <a href="#home" onClick={() => setMenuOpen(false)}>Beranda</a>
           <a href="#layanan" onClick={() => setMenuOpen(false)}>Layanan</a>
           <a href="#tentang" onClick={() => setMenuOpen(false)}>Tentang Kami</a>
+          <a href="#antrean-terdaftar" onClick={(event) => { event.preventDefault(); setMenuOpen(false); setPage('registeredQueues') }}>Antrean Terdaftar</a>
           <a href="#kontak" onClick={() => setMenuOpen(false)}>Kontak</a>
           <a className="nav-cta" href="#reservasi" onClick={(event) => { event.preventDefault(); setPage("services"); setMenuOpen(false) }}>Buat Reservasi <span>↗</span></a>
         </nav>

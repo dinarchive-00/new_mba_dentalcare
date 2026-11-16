@@ -1,5 +1,11 @@
 ﻿function createQueueController(service) {
   return {
+    current(req, res, next) {
+      try { res.status(200).json({ data: service.current(req.query) }); } catch (error) { next(error); }
+    },
+    listRegistered(req, res, next) {
+      try { res.status(200).json({ data: service.listRegistered() }); } catch (error) { next(error); }
+    },
     list(req, res, next) {
       try { res.status(200).json({ data: service.list(req.query) }); } catch (error) { next(error); }
     },

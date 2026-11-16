@@ -22,6 +22,20 @@ function validateDate(date) {
   }
 }
 
+function clinicToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addCalendarDays(date, days) {
+  const [year, month, day] = date.split('-').map(Number);
+  const result = new Date(Date.UTC(year, month - 1, day + days));
+  return `${result.getUTCFullYear()}-${String(result.getUTCMonth() + 1).padStart(2, '0')}-${String(result.getUTCDate()).padStart(2, '0')}`;
+}
+
 function validateFilters(filters) {
   for (const key of Object.keys(filters)) {
     if (key !== 'date' && key !== 'status') {
@@ -40,8 +54,69 @@ function validateFilters(filters) {
   }
 }
 
-function createQueueService({ queues, reservations, schedules }) {
+function validateCurrentFilters(filters) {
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
+    throw createError('Parameter dokter dan tanggal wajib diisi.', 400);
+  }
+  for (const key of Object.keys(filters)) {
+    if (key !== 'doctorId' && key !== 'date') throw createError(`Parameter query tidak dikenal: ${key}.`, 400);
+  }
+  if (typeof filters.doctorId !== 'string' || !filters.doctorId.trim()) {
+    throw createError('Parameter doctorId wajib diisi.', 400);
+  }
+  if (typeof filters.date !== 'string' || !filters.date.trim()) {
+    throw createError('Parameter date wajib diisi.', 400);
+  }
+  validateDate(filters.date);
+}
+
+function createQueueService({ queues, reservations, schedules, doctors }) {
   return {
+    current(filters = {}) {
+      validateCurrentFilters(filters);
+      const doctorId = filters.doctorId.trim();
+      if (!doctors.findById(doctorId)) throw createError('Dokter tidak ditemukan.', 404);
+      return queues.findAll()
+        .filter((queue) => (
+          queue.doctorId === doctorId
+          && queue.date === filters.date
+          && queue.status === 'in_progress'
+        ))
+        .map((queue) => queue.queueNumber)
+        .filter((queueNumber) => typeof queueNumber === 'string' || Number.isFinite(queueNumber))
+        .sort((a, b) => Number(a) - Number(b));
+    },
+    listRegistered() {
+      const firstDate = clinicToday();
+      const lastDate = addCalendarDays(firstDate, 6);
+      const activeSchedules = schedules.findAll().filter((schedule) => (
+        schedule.isActive && schedule.date >= firstDate && schedule.date <= lastDate
+      ));
+      const doctorsById = new Map(doctors.findAll().map((doctor) => [doctor.id, doctor]));
+      const groups = new Map();
+      activeSchedules.forEach((schedule) => {
+        const doctor = doctorsById.get(schedule.doctorId);
+        if (!doctor || !doctor.isActive) return;
+        const key = `${schedule.doctorId}:${schedule.date}`;
+        if (!groups.has(key)) {
+          groups.set(key, {
+            doctorId: doctor.id,
+            doctorName: doctor.name,
+            date: schedule.date,
+            registeredCount: 0,
+          });
+        }
+      });
+      queues.findAll().forEach((queue) => {
+        if (queue.status === 'cancelled' || queue.date < firstDate || queue.date > lastDate) return;
+        const reservation = reservations.findById(queue.reservationId);
+        if (!reservation || reservation.status === 'cancelled') return;
+        const key = `${queue.doctorId}:${queue.date}`;
+        const group = groups.get(key);
+        if (group) group.registeredCount += 1;
+      });
+      return [...groups.values()].sort((a, b) => a.date.localeCompare(b.date) || a.doctorName.localeCompare(b.doctorName, 'id'));
+    },
     list(filters = {}) {
       validateFilters(filters);
       return queues.findAll().filter((queue) => (
