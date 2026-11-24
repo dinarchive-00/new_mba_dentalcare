@@ -33,6 +33,7 @@ const resourceServices = Object.fromEntries(
                 reservations: resourceRepositories.reservations,
                 schedules: resourceRepositories.schedules,
                 doctors: resourceRepositories.doctors,
+                patients: resourceRepositories.patients,
               })
               : createResourceService(repository),
   ]),

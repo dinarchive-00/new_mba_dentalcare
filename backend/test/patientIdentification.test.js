@@ -122,3 +122,42 @@ test('patient identification, duplicate prevention, and reservation reuse', asyn
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 });
+test('patient administrative records require frontline authentication', async () => {
+  const previousUsername = process.env.FRONTLINE_USERNAME;
+  const previousPassword = process.env.FRONTLINE_PASSWORD;
+  process.env.FRONTLINE_USERNAME = 'patient-test-frontline';
+  process.env.FRONTLINE_PASSWORD = 'patient-test-password';
+  const server = app.listen(0);
+  await once(server, 'listening');
+  const baseUrl = 'http://127.0.0.1:' + server.address().port;
+  try {
+    const unauthorizedPatients = await fetch(baseUrl + '/api/patients');
+    const unauthorizedPatient = await fetch(baseUrl + '/api/patients/patient-demo-001');
+    const unauthorizedReservations = await fetch(baseUrl + '/api/reservations');
+    assert.equal(unauthorizedPatients.status, 401);
+    assert.equal(unauthorizedPatient.status, 401);
+    assert.equal(unauthorizedReservations.status, 401);
+
+    const loginResponse = await fetch(baseUrl + '/api/auth/frontline/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: process.env.FRONTLINE_USERNAME, password: process.env.FRONTLINE_PASSWORD }),
+    });
+    assert.equal(loginResponse.status, 200);
+    const cookie = loginResponse.headers.get('set-cookie').split(';')[0];
+    const patientsResponse = await fetch(baseUrl + '/api/patients', { headers: { Cookie: cookie } });
+    assert.equal(patientsResponse.status, 200);
+    const patients = (await patientsResponse.json()).data;
+    const patient = patients.find((item) => item.id === 'patient-demo-001');
+    assert.equal(patient.nik, '0000000000000001');
+    assert.equal(patient.name, 'Pasien Demonstrasi 1');
+    assert.equal(patient.phone, '080000000001');
+  } finally {
+    server.close();
+    await once(server, 'close');
+    if (previousUsername === undefined) delete process.env.FRONTLINE_USERNAME;
+    else process.env.FRONTLINE_USERNAME = previousUsername;
+    if (previousPassword === undefined) delete process.env.FRONTLINE_PASSWORD;
+    else process.env.FRONTLINE_PASSWORD = previousPassword;
+  }
+});

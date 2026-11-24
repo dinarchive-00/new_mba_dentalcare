@@ -1,12 +1,14 @@
 ﻿const QUEUE_STATUSES = new Set(['waiting', 'called', 'in_progress', 'completed', 'cancelled']);
 const STATUS_TRANSITIONS = {
-  waiting: new Set(['called', 'cancelled']),
+  waiting: new Set(['present', 'called', 'cancelled']),
+  present: new Set(['called', 'cancelled']),
   called: new Set(['in_progress', 'cancelled']),
   in_progress: new Set(['completed']),
   completed: new Set(),
   cancelled: new Set(),
 };
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+QUEUE_STATUSES.add('present');
 
 function createError(message, status) {
   const error = new Error(message);
@@ -38,17 +40,20 @@ function addCalendarDays(date, days) {
 
 function validateFilters(filters) {
   for (const key of Object.keys(filters)) {
-    if (key !== 'date' && key !== 'status') {
+    if (!['doctorId', 'date', 'shift', 'status'].includes(key)) {
       throw createError(`Parameter query tidak dikenal: ${key}.`, 400);
     }
   }
-  for (const key of ['date', 'status']) {
+  for (const key of ['doctorId', 'date', 'shift', 'status']) {
     const value = filters[key];
     if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
       throw createError(`Parameter ${key} harus berupa teks yang tidak kosong.`, 400);
     }
   }
   if (filters.date !== undefined) validateDate(filters.date);
+  if (filters.shift !== undefined && !['pagi', 'siang'].includes(filters.shift)) {
+    throw createError('Shift antrean tidak valid.', 400);
+  }
   if (filters.status !== undefined && !QUEUE_STATUSES.has(filters.status)) {
     throw createError('Status antrean tidak valid.', 400);
   }
@@ -70,7 +75,7 @@ function validateCurrentFilters(filters) {
   validateDate(filters.date);
 }
 
-function createQueueService({ queues, reservations, schedules, doctors }) {
+function createQueueService({ queues, reservations, schedules, doctors, patients }) {
   return {
     current(filters = {}) {
       validateCurrentFilters(filters);
@@ -119,10 +124,26 @@ function createQueueService({ queues, reservations, schedules, doctors }) {
     },
     list(filters = {}) {
       validateFilters(filters);
-      return queues.findAll().filter((queue) => (
-        (filters.date === undefined || queue.date === filters.date)
-        && (filters.status === undefined || queue.status === filters.status)
-      ));
+      return queues.findAll()
+        .filter((queue) => (
+          (filters.doctorId === undefined || queue.doctorId === filters.doctorId)
+          && (filters.date === undefined || queue.date === filters.date)
+          && (filters.shift === undefined || queue.shift === filters.shift)
+          && (filters.status === undefined || queue.status === filters.status)
+        ))
+        .map((queue) => {
+          const reservation = reservations.findById(queue.reservationId);
+          const patient = reservation && patients?.findById(reservation.patientId);
+          return {
+            queueId: queue.id,
+            queueNumber: queue.queueNumber,
+            doctorId: queue.doctorId,
+            date: queue.date,
+            shift: queue.shift,
+            patientName: patient?.name || null,
+            status: queue.status,
+          };
+        });
     },
     getById(id) {
       const queue = queues.findById(id);

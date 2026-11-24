@@ -21,3 +21,25 @@ If you are developing a production application, we recommend using TypeScript wi
 Akun Frontline dikonfigurasi di `backend/.env`, yang diabaikan Git agar rahasia tidak masuk source control. Backend membaca file ini saat mulai. Duplikasi `backend/.env.example` menjadi `backend/.env`, isi kredensial, lalu jalankan `node server.js` dari folder `backend`.
 
 Sesi login menggunakan cookie `HttpOnly` selama 8 jam dan disimpan di memori proses. Restart backend akan mengakhiri semua sesi.
+
+## Migration database Supabase
+
+Backend menggunakan `pg.Pool` yang sudah tersedia di `backend/src/config/database.js`. Untuk Supabase, ambil connection string dari **Project Settings → Database → Connection string → Session pooler**, lalu simpan sebagai `DATABASE_URL` di `backend/.env`. Jaga password tetap rahasia; `backend/.env` diabaikan Git. Placeholder di `backend/.env.example` hanya contoh.
+
+Dari PowerShell pada folder root proyek, siapkan file environment backend:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
+# Lalu edit backend/.env dan isi DATABASE_URL serta kredensial Frontline.
+```
+
+Jika `backend/.env` sudah ada, edit file itu dan tambahkan atau perbarui `DATABASE_URL`; jangan menimpanya. Dari folder `backend`, jalankan:
+
+```powershell
+npm run db:status
+npm run db:migrate
+```
+
+`db:status` membaca tabel migration dan melaporkan migration yang sudah diterapkan atau masih pending. `db:migrate` membuat skema inti dan mengisi cabang Gunung Anyar, dokter demo, layanan, serta relasi dokter-layanan secara idempotent. Perintah ini tidak mengisi pasien, reservasi, atau antrean. `db:rollback` menjalankan operasi down migration terakhir yang menghapus tabel inti beserta datanya; gunakan hanya jika memang ingin menghapus skema tersebut.
+
+Tahap ini hanya menyiapkan penyimpanan database. Repository aplikasi tetap menggunakan data in-memory sampai tahap integrasi berikutnya.

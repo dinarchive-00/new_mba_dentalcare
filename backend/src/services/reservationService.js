@@ -20,7 +20,8 @@ function createConflictError(message) {
 
 const RESERVATION_STATUS_TRANSITIONS = {
   confirmed: new Set(['waiting', 'cancelled']),
-  waiting: new Set(['called', 'cancelled']),
+  waiting: new Set(['present', 'called', 'cancelled']),
+  present: new Set(['called', 'cancelled']),
   called: new Set(['in_progress', 'cancelled']),
   in_progress: new Set(['completed']),
   completed: new Set(),
@@ -47,7 +48,8 @@ function createReservationService({ reservations, patients, services, doctors, s
       if (nextStatus === 'waiting') return reservations.update(id, { status: nextStatus });
 
       const queueTransitions = {
-        waiting: new Set(['called', 'cancelled']),
+        waiting: new Set(['present', 'called', 'cancelled']),
+        present: new Set(['called', 'cancelled']),
         called: new Set(['in_progress', 'cancelled']),
         in_progress: new Set(['completed']),
       };

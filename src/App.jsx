@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import './review.css'
 
@@ -59,7 +59,7 @@ function IdentityMismatchDialog({ onClose }) {
   )
 }
 
-function ReservationList({ onBack, onLogout }) {
+function ReservationList({ onBack, onLogout, onNavigate }) {
   const [reservations, setReservations] = useState([]);
   const [patients, setPatients] = useState([]);
   const [services, setServices] = useState([]);
@@ -125,14 +125,15 @@ function ReservationList({ onBack, onLogout }) {
   const selectedRow = rows.find(({ reservation }) => reservation.id === selectedReservationId);
   const nextReservationStatuses = {
     confirmed: ['waiting', 'cancelled'],
-    waiting: ['called', 'cancelled'],
+    waiting: ['present', 'called', 'cancelled'],
+    present: ['called', 'cancelled'],
     called: ['in_progress', 'cancelled'],
     in_progress: ['completed'],
     completed: [],
     cancelled: [],
   };
   const statusLabels = {
-    confirmed: 'Terkonfirmasi', waiting: 'Menunggu', called: 'Dipanggil',
+    confirmed: 'Terkonfirmasi', waiting: 'Menunggu', present: 'Hadir', called: 'Dipanggil',
     in_progress: 'Sedang dilayani', completed: 'Selesai', cancelled: 'Dibatalkan',
   };
   const confirmedCount = reservations.filter((item) => String(item.status || '').toLowerCase() === 'confirmed').length;
@@ -161,6 +162,7 @@ function ReservationList({ onBack, onLogout }) {
   }
 
   return (
+    <FrontlineShell active="reservations" onLogout={onLogout} onNavigate={onNavigate}>
     <main className="service-page reservation-page">
       <header className="service-page-header"><button className="back-button" onClick={onBack} aria-label="Kembali ke beranda">?</button><span>Daftar Reservasi</span><button className="logout-button" onClick={onLogout}>Keluar</button><button className="reload-button" onClick={() => { setLoading(true); setError(''); setReloadKey((value) => value + 1) }} disabled={loading}>Muat Ulang</button></header>
       <section className="reservation-content">
@@ -211,12 +213,17 @@ function ReservationList({ onBack, onLogout }) {
         {selectedRow && <section className="reservation-detail" aria-label="Detail reservasi">
           <div className="reservation-detail-heading"><div><div className="eyebrow"><span /> DETAIL RESERVASI</div><h2>{selectedRow.reservation.id}</h2></div><button type="button" className="reservation-detail-close" onClick={() => setSelectedReservationId('')} aria-label="Tutup detail">×</button></div>
           <dl><div><dt>Pasien</dt><dd>{selectedRow.patient?.name || '?'}</dd></div><div><dt>Layanan</dt><dd>{selectedRow.service?.name || '?'}</dd></div><div><dt>Dokter</dt><dd>{selectedRow.doctor?.name || '?'}</dd></div><div><dt>Jadwal</dt><dd>{selectedRow.schedule ? `${formatDate(selectedRow.schedule.date)} ${selectedRow.schedule.startTime || ''}` : '?'}</dd></div><div><dt>Status saat ini</dt><dd>{statusLabels[selectedRow.reservation.status] || selectedRow.reservation.status || '?'}</dd></div></dl>
+          <section className="reservation-administrative" aria-label="Data administratif pasien">
+            <h3>Data Administratif Pasien</h3>
+            <dl><div><dt>NIK</dt><dd>{selectedRow.patient?.nik || 'NIK tidak tersedia'}</dd></div><div><dt>Nama lengkap</dt><dd>{selectedRow.patient?.name || 'Nama pasien tidak tersedia'}</dd></div><div><dt>Nomor telepon</dt><dd>{selectedRow.patient?.phone || 'Nomor telepon tidak tersedia'}</dd></div><div><dt>Alamat</dt><dd className="reservation-address">{selectedRow.patient?.address || 'Alamat belum tersedia'}</dd></div></dl>
+          </section>
           <label className="reservation-status-edit">Perbarui status<select value={selectedStatus} onChange={(event) => { setSelectedStatus(event.target.value); setStatusError(''); setStatusSuccess('') }} disabled={statusSaving || nextReservationStatuses[selectedRow.reservation.status]?.length === 0}><option value={selectedRow.reservation.status}>{statusLabels[selectedRow.reservation.status] || selectedRow.reservation.status}</option>{(nextReservationStatuses[selectedRow.reservation.status] || []).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select></label>
           {statusError && <p className="form-error" role="alert">{statusError}</p>}{statusSuccess && <p className="status-save-success" role="status">{statusSuccess}</p>}
           <button className="button button-dark" type="button" onClick={handleReservationStatusSave} disabled={statusSaving || selectedStatus === selectedRow.reservation.status}>{statusSaving ? 'Menyimpan...' : 'Simpan Status'} <span>→</span></button>
         </section>}
       </section>
     </main>
+    </FrontlineShell>
   );
 }
 
@@ -239,7 +246,7 @@ function formatClinicDate(dateString) {
   return new Intl.DateTimeFormat('id-ID', { dateStyle: 'long', timeZone: 'Asia/Jakarta' }).format(new Date(`${dateString}T00:00:00Z`))
 }
 
-function ScheduleManagement({ onBack, onLogout }) {
+function ScheduleManagement({ onBack, onLogout, onNavigate }) {
   const today = localDateString()
   const lastDate = addLocalDateDays(today, 13)
   const [doctors, setDoctors] = useState([])
@@ -300,6 +307,7 @@ function ScheduleManagement({ onBack, onLogout }) {
   const doctorById = new Map(doctors.map((doctor) => [doctor.id, doctor]))
 
   return (
+    <FrontlineShell active="schedules" onLogout={onLogout} onNavigate={onNavigate}>
     <main className="service-page schedule-management-page">
       <header className="service-page-header"><button className="back-button" onClick={onBack} aria-label="Kembali ke beranda">?</button><span>Manajemen Jadwal Dokter</span><button className="logout-button" onClick={onLogout}>Keluar</button></header>
       <section className="schedule-management-content">
@@ -322,6 +330,7 @@ function ScheduleManagement({ onBack, onLogout }) {
         {!loading && schedules.length > 0 && <div className="managed-schedule-list">{[...schedules].sort((a,b) => a.date.localeCompare(b.date) || String(a.shift).localeCompare(String(b.shift))).map((schedule) => <article className="managed-schedule-card" key={schedule.id}><div><strong>{doctorById.get(schedule.doctorId)?.name || 'Dokter tidak ditemukan'}</strong><small>{formatClinicDate(schedule.date)}</small></div><span className="managed-shift">Shift {schedule.shift === 'pagi' ? 'Pagi' : schedule.shift === 'siang' ? 'Siang' : schedule.shift || '?'}</span><span className="managed-hours">{schedule.startTime || '?'}{schedule.endTime ? `?${schedule.endTime}` : ''}</span>{schedule.isActive !== undefined && <span className={`managed-status ${schedule.isActive ? 'active' : ''}`}>{schedule.isActive ? 'Aktif' : 'Nonaktif'}</span>}</article>)}</div>}
       </section>
     </main>
+    </FrontlineShell>
   )
 }
 
@@ -374,8 +383,9 @@ function FrontlineLogin({ onBack, onSuccess }) {
 }
 
 
-function FrontlineDashboard({ onHome, onReservations, onSchedules, onLogout }) {
+function FrontlineDashboard({ onHome, onReservations, onSchedules, onQueues, onLogout, onNavigate }) {
   return (
+    <FrontlineShell active="dashboard" onLogout={onLogout} onNavigate={onNavigate}>
     <main className="service-page frontline-dashboard-page">
       <header className="service-page-header"><button className="back-button" onClick={onHome}>Kembali</button><span>Dashboard Frontline</span><button className="logout-button" onClick={onLogout}>Keluar</button></header>
       <section className="frontline-dashboard-content">
@@ -384,11 +394,18 @@ function FrontlineDashboard({ onHome, onReservations, onSchedules, onLogout }) {
         <p className="service-page-intro">Pilih pekerjaan yang ingin Anda lakukan.</p>
         <div className="frontline-dashboard-grid">
           <button className="frontline-dashboard-card" onClick={onReservations}><span className="frontline-card-icon">R</span><strong>Daftar Reservasi</strong><small>Lihat dan cari reservasi pasien.</small></button>
+          <button className="frontline-dashboard-card" onClick={onQueues}><span className="frontline-card-icon">A</span><strong>Manajemen Antrean</strong><small>Lihat antrean berdasarkan dokter, tanggal, dan shift.</small></button>
           <button className="frontline-dashboard-card" onClick={onSchedules}><span className="frontline-card-icon">J</span><strong>Manajemen Jadwal Dokter</strong><small>Tambahkan dan lihat jadwal dokter.</small></button>
         </div>
       </section>
     </main>
+    </FrontlineShell>
   )
+}
+
+function FrontlineShell({ active, onLogout, onNavigate, children }) {
+  const [scheduleOpen, setScheduleOpen] = useState(active === 'schedules' || active === 'reservations')
+  return <div className="frontline-shell"><aside className="frontline-sidebar"><a className="frontline-brand" href="/frontline/dashboard" onClick={(event) => { event.preventDefault(); onNavigate('frontlineDashboard') }}><span className="frontline-brand-mark">✦</span><span><strong>MBA</strong><small>DENTALCARE</small></span></a><nav aria-label="Navigasi Frontline"><a className={active === 'dashboard' ? 'is-active' : ''} href="/frontline/dashboard" onClick={(event) => { event.preventDefault(); onNavigate('frontlineDashboard') }}><span>▦</span>Dashboard</a><a className={active === 'queues' ? 'is-active' : ''} href="/frontline/queues" onClick={(event) => { event.preventDefault(); onNavigate('queues') }}><span>☷</span>Daftar Antrean</a><button className="frontline-nav-group" aria-expanded={scheduleOpen} onClick={() => setScheduleOpen((open) => !open)}><span>▤</span>Manajemen Jadwal <b>{scheduleOpen ? '⌄' : '›'}</b></button>{scheduleOpen && <div className="frontline-subnav"><a href="/frontline/schedules" onClick={(event) => { event.preventDefault(); onNavigate('scheduleManagement') }}>Jadwal Dokter</a><a href="/frontline/reservations" onClick={(event) => { event.preventDefault(); onNavigate('reservations') }}>Reservasi</a></div>}</nav><button className="frontline-logout" onClick={onLogout}>Keluar</button></aside><div className="frontline-main"><header className="frontline-topbar"><strong>MBA Dentalcare</strong></header>{children}</div></div>
 }
 
 function RegisteredQueueView({ onBack }) {
@@ -505,7 +522,100 @@ const FRONTLINE_PATHS = {
   frontlineLogin: '/frontline',
   frontlineDashboard: '/frontline/dashboard',
   reservations: '/frontline/reservations',
+  queues: '/frontline/queues',
   scheduleManagement: '/frontline/schedules',
+}
+
+function QueueManagement({ onBack, onLogout, onNavigate }) {
+  const [doctors, setDoctors] = useState([])
+  const [doctorId, setDoctorId] = useState('')
+  const [date, setDate] = useState('')
+  const [shift, setShift] = useState('')
+  const [queues, setQueues] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [queueAction, setQueueAction] = useState(null)
+  const [queueSearch, setQueueSearch] = useState('')
+  const queueRequestsInFlight = useRef(new Set())
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getApiData('doctors', { signal: controller.signal })
+      .then((data) => {
+        if (!Array.isArray(data)) throw new Error('Format data dokter tidak sesuai.')
+        if (!controller.signal.aborted) setDoctors(data.filter((doctor) => doctor.isActive !== false))
+      })
+      .catch(() => { if (!controller.signal.aborted) setError('Daftar dokter gagal dimuat.') })
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const params = new URLSearchParams()
+    if (doctorId) params.set('doctorId', doctorId)
+    if (date) params.set('date', date)
+    if (shift) params.set('shift', shift)
+    setLoading(true)
+    setError('')
+    getApiData(`queues${params.size ? `?${params.toString()}` : ''}`, { signal: controller.signal })
+      .then((data) => {
+        if (!Array.isArray(data)) throw new Error('Format data antrean tidak sesuai.')
+        if (!controller.signal.aborted) setQueues(data)
+      })
+      .catch(() => { if (!controller.signal.aborted) setError('Daftar antrean gagal dimuat. Periksa koneksi server, lalu coba lagi.') })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [doctorId, date, shift])
+
+  const statusLabels = { waiting: 'Menunggu', present: 'Hadir', called: 'Dipanggil', in_progress: 'Sedang dilayani', completed: 'Selesai', cancelled: 'Dibatalkan' }
+  const normalizedQueueSearch = queueSearch.trim().toLocaleLowerCase('id')
+  const filteredQueues = queues.filter((queue) => {
+    const queueNumber = String(queue.queueNumber ?? '')
+    const displayQueueNumber = `A${queueNumber.padStart(3, '0')}`
+    const patientNik = queue.nik ?? queue.patientNik ?? queue.patient?.nik ?? ''
+    return [queueNumber, displayQueueNumber, queue.patientName, patientNik]
+      .some((value) => String(value ?? '').toLocaleLowerCase('id').includes(normalizedQueueSearch))
+  })
+
+  async function handleQueueStatusChange(queue, nextStatus) {
+    const expectedStatus = { present: 'waiting', in_progress: 'called', completed: 'in_progress' }[nextStatus]
+    if (queue.status !== expectedStatus || queueRequestsInFlight.current.size > 0 || queueRequestsInFlight.current.has(queue.queueId)) return
+    queueRequestsInFlight.current.add(queue.queueId)
+    setQueueAction({ queueId: queue.queueId, type: 'loading', message: 'Menyimpan status antrean...' })
+    try {
+      const updated = await patchApiData(`queues/${encodeURIComponent(queue.queueId)}/status`, { status: nextStatus })
+      if (updated.id !== queue.queueId || updated.status !== nextStatus) throw new Error('Status antrean tidak terkonfirmasi oleh server.')
+      setQueues((current) => current.map((item) => item.queueId === queue.queueId ? { ...item, status: updated.status } : item))
+      const successMessage = { present: 'Pasien berhasil ditandai hadir.', in_progress: 'Pasien berhasil ditandai sedang dilayani.', completed: 'Pelayanan pasien berhasil ditandai selesai.' }[nextStatus]
+      setQueueAction({ queueId: queue.queueId, type: 'success', message: successMessage })
+    } catch (requestError) {
+      setQueueAction({ queueId: queue.queueId, type: 'error', message: requestError.message || 'Status antrean gagal disimpan. Silakan coba lagi.' })
+    } finally {
+      queueRequestsInFlight.current.delete(queue.queueId)
+    }
+  }
+
+  return (
+    <FrontlineShell active="queues" onLogout={onLogout} onNavigate={onNavigate}><main className="service-page reservation-page queue-management-page">
+      <header className="service-page-header"><button className="back-button" onClick={onBack} aria-label="Kembali ke dashboard">←</button><span>Manajemen Antrean</span><button className="logout-button" onClick={onLogout}>Keluar</button></header>
+      <section className="reservation-content">
+        <div className="frontline-breadcrumb">Frontline <span>/</span> Daftar Antrean</div>
+        <h1>Daftar Antrean</h1>
+        <label className="queue-search"><span>⌕</span><input type="search" value={queueSearch} onChange={(event) => setQueueSearch(event.target.value)} placeholder="Cari antrean..." /></label>
+        <div className="reservation-filters queue-filters">
+          <label className="reservation-filter">Dokter<select value={doctorId} onChange={(event) => setDoctorId(event.target.value)}><option value="">Semua dokter</option>{doctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.name}</option>)}</select></label>
+          <label className="reservation-filter">Tanggal pelayanan<input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+          <label className="reservation-filter">Shift<select value={shift} onChange={(event) => setShift(event.target.value)}><option value="">Semua shift</option><option value="pagi">Pagi</option><option value="siang">Siang</option></select></label>
+          {(doctorId || date || shift) && <button className="clear-reservation-filters" type="button" onClick={() => { setDoctorId(''); setDate(''); setShift('') }}>Hapus filter</button>}
+        </div>
+        {loading && <p className="reservation-message" role="status">Memuat daftar antrean...</p>}
+        {!loading && error && <p className="reservation-message reservation-error" role="alert">{error}</p>}
+        {!loading && !error && queues.length === 0 && <p className="reservation-message">Belum ada antrean yang sesuai dengan filter.</p>}
+        {!loading && !error && queues.length > 0 && filteredQueues.length === 0 && <p className="reservation-message">Data antrean tidak ditemukan</p>}
+        {!loading && !error && filteredQueues.length > 0 && <div className="reservation-table-wrap"><table className="reservation-table queue-table"><thead><tr><th>Nomor Antrean</th><th>Nama Pasien</th><th>Tanggal Pelayanan</th><th>Shift</th><th>Status Antrean</th><th>Aksi</th></tr></thead><tbody>{filteredQueues.map((queue) => { const action = queueAction?.queueId === queue.queueId ? queueAction : null; const saving = queueAction?.type === 'loading'; return <tr key={queue.queueId}><td>A{String(queue.queueNumber).padStart(3, '0')}</td><td>{queue.patientName || 'Data pasien tidak ditemukan'}</td><td>{formatClinicDate(queue.date)}</td><td>{queue.shift === 'pagi' ? 'Pagi' : queue.shift === 'siang' ? 'Siang' : queue.shift || '—'}</td><td><span className="reservation-status">{statusLabels[queue.status] || queue.status}</span>{action && <small className={`queue-action-feedback is-${action.type}`} role={action.type === 'error' ? 'alert' : 'status'}>{action.message}</small>}</td><td>{queue.status === 'waiting' && <button className="queue-present-button" type="button" onClick={() => handleQueueStatusChange(queue, 'present')} disabled={saving}>{saving && action?.queueId === queue.queueId ? 'Menyimpan...' : 'Tandai Hadir'}</button>}{queue.status === 'called' && <button className="queue-present-button" type="button" onClick={() => handleQueueStatusChange(queue, 'in_progress')} disabled={saving}>{saving && action?.queueId === queue.queueId ? 'Menyimpan...' : 'Tandai Dilayani'}</button>}{queue.status === 'in_progress' && <button className="queue-present-button" type="button" onClick={() => handleQueueStatusChange(queue, 'completed')} disabled={saving}>{saving && action?.queueId === queue.queueId ? 'Menyimpan...' : 'Tandai Selesai'}</button>}</td></tr> })}</tbody></table></div>}
+      </section>
+    </main></FrontlineShell>
+  )
 }
 
 function pageFromPath(pathname) {
@@ -551,7 +661,7 @@ function App() {
   const [reservationSubmitting, setReservationSubmitting] = useState(false)
   const [reservationError, setReservationError] = useState('')
   const [reservationConfirmation, setReservationConfirmation] = useState(null)
-  const [frontlineAuthenticated, setFrontlineAuthenticated] = useState(false)
+  const [frontlineAuthStatus, setFrontlineAuthStatus] = useState('checking')
   const reservationInProgress = useRef(false)
 
   useEffect(() => {
@@ -563,19 +673,19 @@ function App() {
   useEffect(() => {
     fetch('/api/auth/session', { credentials: 'same-origin' })
       .then((response) => response.ok ? response.json() : null)
-      .then((result) => { if (result?.data?.role === 'frontline') setFrontlineAuthenticated(true) })
-      .catch(() => {})
+      .then((result) => { setFrontlineAuthStatus(result?.data?.role === 'frontline' ? 'authenticated' : 'unauthenticated') })
+      .catch(() => setFrontlineAuthStatus('unauthenticated'))
   }, [])
 
   function openFrontlinePage() {
     setMenuOpen(false)
-    setPage(frontlineAuthenticated ? 'frontlineDashboard' : 'frontlineLogin')
+    setPage(frontlineAuthStatus === 'authenticated' ? 'frontlineDashboard' : 'frontlineLogin')
   }
 
   async function handleFrontlineLogout() {
     await fetch('/api/auth/frontline/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => null)
-    setFrontlineAuthenticated(false)
-    setPage('home')
+    setFrontlineAuthStatus('unauthenticated')
+    setPage('frontlineLogin')
   }
 
   useEffect(() => {
@@ -826,11 +936,13 @@ function App() {
     }
   }
 
+  if (['frontlineLogin', 'frontlineDashboard', 'scheduleManagement', 'reservations', 'queues'].includes(page) && frontlineAuthStatus === 'checking') return null
   if (page === 'registeredQueues') return <RegisteredQueueView onBack={() => setPage('home')} />
-  if (page === 'frontlineLogin') return frontlineAuthenticated ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onSchedules={() => setPage('scheduleManagement')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('frontlineDashboard') }} />
-  if (page === 'frontlineDashboard') return frontlineAuthenticated ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onSchedules={() => setPage('scheduleManagement')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('frontlineDashboard') }} />
-  if (page === 'scheduleManagement') return frontlineAuthenticated ? <ScheduleManagement onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('scheduleManagement') }} />
-  if (page === 'reservations') return frontlineAuthenticated ? <ReservationList onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthenticated(true); setPage('reservations') }} />
+  if (page === 'frontlineLogin') return frontlineAuthStatus === 'authenticated' ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onQueues={() => setPage('queues')} onSchedules={() => setPage('scheduleManagement')} onLogout={handleFrontlineLogout} onNavigate={setPage} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthStatus('authenticated'); setPage('frontlineDashboard') }} />
+  if (page === 'frontlineDashboard') return frontlineAuthStatus === 'authenticated' ? <FrontlineDashboard onHome={() => setPage('home')} onReservations={() => setPage('reservations')} onQueues={() => setPage('queues')} onSchedules={() => setPage('scheduleManagement')} onLogout={handleFrontlineLogout} onNavigate={setPage} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthStatus('authenticated'); setPage('frontlineDashboard') }} />
+  if (page === 'scheduleManagement') return frontlineAuthStatus === 'authenticated' ? <ScheduleManagement onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} onNavigate={setPage} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthStatus('authenticated'); setPage('scheduleManagement') }} />
+  if (page === 'reservations') return frontlineAuthStatus === 'authenticated' ? <ReservationList onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} onNavigate={setPage} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthStatus('authenticated'); setPage('reservations') }} />
+  if (page === 'queues') return frontlineAuthStatus === 'authenticated' ? <QueueManagement onBack={() => setPage('frontlineDashboard')} onLogout={handleFrontlineLogout} onNavigate={setPage} /> : <FrontlineLogin onBack={() => setPage('home')} onSuccess={() => { setFrontlineAuthStatus('authenticated'); setPage('queues') }} />
 
   if (page === 'services') return (
     <main className="service-page">
